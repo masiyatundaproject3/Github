@@ -803,12 +803,23 @@ export class ProfileView {
       ? h('button', {
         class: 'profile-cover-shortcut', type: 'button',
         'aria-label': t('changeCoverPhoto'), title: t('changeCoverPhoto'),
-        onclick: () => this.#quickPickImage('cover'),
+        onclick: event => {
+          event.preventDefault();
+          event.stopPropagation();
+          this.#quickPickImage('cover');
+        },
       }, h('span', { 'aria-hidden': 'true' }, '+'))
       : null;
     const profileAvatar = avatar({ ...profile, name: profileText(profile.name) }, 84);
     const avatarControl = this.own
-      ? h('button', { class: 'profile-avatar-shortcut', type: 'button', 'aria-label': t('changeProfilePhoto'), onclick: () => this.#quickPickImage('avatar') },
+      ? h('button', {
+        class: 'profile-avatar-shortcut', type: 'button', 'aria-label': t('changeProfilePhoto'),
+        onclick: event => {
+          event.preventDefault();
+          event.stopPropagation();
+          this.#quickPickImage('avatar');
+        },
+      },
         h('span', { class: `presence-avatar${presence.isOnline(profile.id) || presence.visible ? ' online' : ''}`, 'data-presence': profile.id },
           profileAvatar, h('i', { class: 'presence-dot', 'aria-hidden': 'true' })))
       : h('span', { class: `presence-avatar${presence.isOnline(profile.id) ? ' online' : ''}`, 'data-presence': profile.id },

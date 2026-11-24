@@ -274,7 +274,7 @@ class ChatSheet {
         iconBtn(t('back'), backIcon, () => this.sheet.close()),
         this.face,
         h('div', { class: 'chat-who' }, this.name, this.state),
-        h('div', { class: 'chat-header-actions' }, callMenuButton, callMenu)),
+        h('div', { class: 'chat-header-actions' }, this.composer.walkieSlot, callMenuButton, callMenu)),
       this.watchParty.root,
       this.list, this.composer.form);
     this.messages = new Map();

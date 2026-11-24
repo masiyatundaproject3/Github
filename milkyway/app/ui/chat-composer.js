@@ -44,30 +44,52 @@ export class ChatComposer {
     this.attachment = this.#tool(t('attachMedia'), '＋', () => this.picker.click());
     this.voice = this.#tool(t('recordVoiceNote'), '🎙', () => this.#record('audio'));
     this.voiceEffectButton = this.#tool(t('voiceChanger'), '♫', () => {
+      this.noteMenu.hidden = true;
+      this.noteButton.setAttribute('aria-expanded', 'false');
       this.voicePresetSelect.hidden = !this.voicePresetSelect.hidden;
-      if (!this.voicePresetSelect.hidden) this.voicePresetSelect.focus();
+      this.voiceEffectButton.setAttribute('aria-expanded', String(!this.voicePresetSelect.hidden));
+      if (!this.voicePresetSelect.hidden) {
+        document.body.append(this.voicePresetSelect);
+        requestAnimationFrame(() => {
+          this.#placePopup(this.voicePresetSelect, this.voiceEffectButton);
+          this.voicePresetSelect.focus({ preventScroll: true });
+        });
+      } else {
+        this.voicePresetPlaceholder.before(this.voicePresetSelect);
+      }
     });
     this.voiceEffectButton.classList.add('chat-voice-changer');
     this.voicePresetSelect = h('select', {
       class: 'chat-voice-preset', hidden: true, 'aria-label': t('voiceChanger'),
       onchange: () => this.#setVoicePreset(this.voicePresetSelect.value),
     }, ...VOICE_PRESETS.map(preset => h('option', { value: preset.id }, t(preset.key))));
+    this.voicePresetPlaceholder = document.createComment('voice preset position');
     this.video = h('button', {
       class: 'chat-tool chat-video-note', type: 'button', 'aria-pressed': 'false', 'aria-label': t('recordVideoNote'),
       title: t('recordVideoNote'), onclick: () => this.#record('video'),
     }, '◉');
     this.noteMenu = h('div', { class: 'chat-note-menu', role: 'group', 'aria-label': t('mediaNoteOptions'), hidden: true },
       this.voice, this.video);
+    this.noteMenuPlaceholder = document.createComment('media note menu position');
     this.noteButton = this.#tool(t('mediaNoteOptions'), '◉', () => {
-      this.noteMenu.hidden = !this.noteMenu.hidden;
+      this.voicePresetSelect.hidden = true;
+      this.voicePresetPlaceholder.before(this.voicePresetSelect);
+      this.voiceEffectButton.setAttribute('aria-expanded', 'false');
+      if (this.noteMenu.hidden) {
+        document.body.append(this.noteMenu);
+        this.noteMenu.hidden = false;
+      } else {
+        this.#closePopup(this.noteMenu, this.noteMenuPlaceholder);
+      }
       this.noteButton.setAttribute('aria-expanded', String(!this.noteMenu.hidden));
+      if (!this.noteMenu.hidden) requestAnimationFrame(() => this.#placePopup(this.noteMenu, this.noteButton));
     });
     this.noteButton.classList.add('chat-note-toggle');
     this.noteButton.setAttribute('aria-haspopup', 'true');
     this.noteMenu.id = `chatNoteOptions-${Math.random().toString(36).slice(2)}`;
     this.noteButton.setAttribute('aria-controls', this.noteMenu.id);
-    this.voice.addEventListener('click', () => { this.noteMenu.hidden = true; this.noteButton.setAttribute('aria-expanded', 'false'); });
-    this.video.addEventListener('click', () => { this.noteMenu.hidden = true; this.noteButton.setAttribute('aria-expanded', 'false'); });
+    this.voice.addEventListener('click', () => { this.#closePopup(this.noteMenu, this.noteMenuPlaceholder); this.noteButton.setAttribute('aria-expanded', 'false'); });
+    this.video.addEventListener('click', () => { this.#closePopup(this.noteMenu, this.noteMenuPlaceholder); this.noteButton.setAttribute('aria-expanded', 'false'); });
     this.walkieSlot = h('div', { class: 'dm-walkie-controls', 'aria-label': t('walkieTalkie') });
     this.once = h('button', {
       class: 'chat-tool chat-view-once', type: 'button', 'aria-pressed': 'false', hidden: true,
@@ -87,9 +109,16 @@ export class ChatComposer {
         h('div', { class: 'dm-input-toolbar' }, this.attachment,
           h('div', { class: 'dm-composer-actions' }, this.once,
             h('div', { class: 'chat-note-group' }, this.noteButton, this.noteMenu),
-            this.voiceEffectButton, this.voicePresetSelect, this.walkieSlot),
+            this.voiceEffectButton, this.voicePresetPlaceholder),
           this.send)),
       this.picker);
+    this.positionOpenPopups = () => {
+      if (!this.noteMenu.hidden) this.#placePopup(this.noteMenu, this.noteButton);
+      if (!this.voicePresetSelect.hidden) this.#placePopup(this.voicePresetSelect, this.voiceEffectButton);
+    };
+    addEventListener('resize', this.positionOpenPopups, { passive: true });
+    window.visualViewport?.addEventListener('resize', this.positionOpenPopups, { passive: true });
+    window.visualViewport?.addEventListener('scroll', this.positionOpenPopups, { passive: true });
     this.picker.addEventListener('change', () => {
       const file = this.picker.files?.[0];
       this.picker.value = '';
@@ -112,6 +141,37 @@ export class ChatComposer {
     return h('button', { class: 'chat-tool', type: 'button', 'aria-label': label, title: label, onclick: action }, text);
   }
 
+  #closePopup(popup, placeholder) {
+    popup.hidden = true;
+    if (placeholder.isConnected) placeholder.before(popup);
+  }
+
+  #placePopup(popup, anchor) {
+    if (popup.hidden || !anchor.isConnected) return;
+    const viewport = window.visualViewport;
+    const viewportWidth = viewport?.width || document.documentElement.clientWidth;
+    const viewportHeight = viewport?.height || document.documentElement.clientHeight;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportBottom = viewportTop + viewportHeight;
+    const anchorRect = anchor.getBoundingClientRect();
+    const margin = 10;
+    const safeTop = Math.max(margin, viewportTop + margin);
+    const safeBottom = Math.min(document.documentElement.clientHeight - margin, viewportBottom - margin);
+    const maxHeight = Math.max(100, safeBottom - safeTop);
+    popup.style.maxHeight = `${maxHeight}px`;
+    const measured = popup.getBoundingClientRect();
+    const left = Math.max(viewportLeft + margin,
+      Math.min(viewportLeft + viewportWidth - measured.width - margin, anchorRect.right - measured.width));
+    const above = anchorRect.top - measured.height - 8;
+    const below = anchorRect.bottom + 8;
+    const top = above >= safeTop ? above : Math.min(Math.max(safeTop, below), safeBottom - measured.height);
+    popup.style.left = `${left}px`;
+    popup.style.top = `${Math.max(safeTop, top)}px`;
+    popup.style.right = 'auto';
+    popup.style.bottom = 'auto';
+  }
+
   #toggleOnce() {
     this.viewOnce = !this.viewOnce;
     this.once.setAttribute('aria-pressed', String(this.viewOnce));
@@ -128,6 +188,8 @@ export class ChatComposer {
       this.voiceEffectButton.classList.toggle('active', id !== 'normal');
       this.voiceEffectButton.title = `${t('voiceChanger')}: ${t(VOICE_PRESETS.find(preset => preset.id === id)?.key || 'voicePresetNormal')}`;
       this.voicePresetSelect.hidden = true;
+      this.voicePresetPlaceholder.before(this.voicePresetSelect);
+      this.voiceEffectButton.setAttribute('aria-expanded', 'false');
     } catch (error) {
       this.voicePresetSelect.value = this.voicePreset;
       toast(error?.message || t('voicePresetUnavailable'));
@@ -168,6 +230,10 @@ export class ChatComposer {
   }
 
   cancelRecording() {
+    this.#closePopup(this.noteMenu, this.noteMenuPlaceholder);
+    this.#closePopup(this.voicePresetSelect, this.voicePresetPlaceholder);
+    this.noteButton.setAttribute('aria-expanded', 'false');
+    this.voiceEffectButton.setAttribute('aria-expanded', 'false');
     this.captureGeneration++;
     this.recordingStarting = false;
     if (!this.recording) return;
