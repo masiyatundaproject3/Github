@@ -147,12 +147,13 @@ export class ProfileView {
   }
 
   /** person: { id, name, username, avatar } or null for the signed-in user. */
-  open(person = null, { photo = null } = {}) {
+  open(person = null, { photo = null, fullscreen = false } = {}) {
     const id = String(person?.id || auth.userId || '');
     if (!id) return;
     this.pendingPhoto = photo;
     this.id = id;
     this.own = id === auth.userId;
+    this.sheet.panel.classList.toggle('profile-sheet-fullscreen', fullscreen);
     this.sheet.title = this.own ? t('me') : (profileText(person?.name || profiles.peek(id)?.name) || t('profile'));
     this.#render({ profile: person || profiles.peek(id) || { id, name: this.own ? auth.name : '' }, loading: true });
     this.sheet.open();

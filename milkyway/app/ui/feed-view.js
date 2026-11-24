@@ -18,11 +18,12 @@ import { loadAds, loadSuggestions, weave, adImpression, adClick, dismissAd } fro
 import { openShare } from './share-sheet.js';
 
 const DOUBLE_TAP_MS = 260;
+const displayText = value => typeof value === 'string' ? value.replace(/\b(?:null|undefined)\b/gi, '').trim() : '';
 
 export class FeedView {
-  constructor(root, { requireLogin, openComments, openGifts, openProfile, openPost }) {
+  constructor(root, { requireLogin, openComments, openGifts, openProfile, openFollowers, openPost }) {
     this.root = root;
-    this.hooks = { requireLogin, openComments, openGifts, openProfile, openPost };
+    this.hooks = { requireLogin, openComments, openGifts, openProfile, openFollowers, openPost };
     this.scope = null;
     this.unsubscribe = null;
     this.interacted = false;
@@ -45,9 +46,17 @@ export class FeedView {
         if (item?.kind === 'ad') adImpression(item.ad);
       },
       onNearEnd: () => this.source?.more(),
+      onHorizontalSwipe: (direction, post) => {
+        if (post?.kind || !post?.author?.id) return;
+        if (direction === 'left') this.hooks.openProfile(post.author, { fullscreen: true });
+        else this.hooks.openFollowers?.(post.author);
+      },
     });
     this.#bindEvents();
-    playback.onMute(muted => this.root.classList.toggle('is-muted', muted));
+    playback.onMute(muted => {
+      this.root.classList.toggle('is-muted', muted);
+      this.pager.mounted.forEach(slide => this.#paintMute(slide, muted));
+    });
     this.root.classList.toggle('is-muted', playback.muted);
     bus.on('follow', () => this.pager.mounted.forEach(slide => { this.#paintFollow(slide, slide._post); if (slide._post?.kind === 'suggest') this.#paintSuggest(slide); }));
     this.promo = { ads: [], people: [] };
@@ -164,7 +173,13 @@ export class FeedView {
     const seek = h('input', { class: 'video-seek', type: 'range', min: '0', max: '1000', step: '1', value: '0', 'aria-label': 'Seek video' });
     const currentTime = h('span', { class: 'video-time', 'aria-live': 'off' }, '0:00');
     const durationTime = h('span', { class: 'video-time', 'aria-live': 'off' }, '0:00');
-    const videoControls = h('div', { class: 'video-controls', 'data-act': 'video-controls' }, currentTime, seek, durationTime);
+    const mute = h('button', { class: 'video-mute', type: 'button', 'aria-label': 'Toggle video sound', 'aria-pressed': String(!playback.muted), onclick: event => {
+      event.stopPropagation();
+      playback.setMuted(!playback.muted);
+    } },
+    h('span', { class: 'i-muted', html: icon.muted }),
+    h('span', { class: 'i-sound', html: icon.sound }));
+    const videoControls = h('div', { class: 'video-controls', 'data-act': 'video-controls', 'data-no-swipe': true }, mute, currentTime, seek, durationTime);
     const stopSeekPropagation = event => event.stopPropagation();
     for (const type of ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click']) videoControls.addEventListener(type, stopSeekPropagation);
     seek.addEventListener('input', () => {
@@ -206,7 +221,7 @@ export class FeedView {
       h('aside', { class: 'rail' }, h('div', { class: 'rail-author', 'data-act': 'profile' }, avatarNode, follow), like, comment, save, gift, share),
       h('div', { class: 'meta' }, name, caption, adBar), suggest,
       videoControls);
-    slide._refs = { video, img, text, paused, missing, slideshowBadge, avatarNode, follow, like, comment, save, gift, share, name, caption, videoControls, seek, currentTime, durationTime, adBar, suggest };
+    slide._refs = { video, img, text, paused, missing, slideshowBadge, avatarNode, follow, like, comment, save, gift, share, name, caption, videoControls, mute, seek, currentTime, durationTime, adBar, suggest };
     const imagePointers = new Map();
     let imagePinch = null, imageScale = 1, imageX = 0, imageY = 0, suppressImageClickUntil = 0;
     const paintImageZoom = () => {
@@ -331,6 +346,7 @@ export class FeedView {
     r.currentTime.textContent = '0:00';
     r.durationTime.textContent = '0:00';
     r.seek.style.setProperty('--seek-progress', '0%');
+    this.#paintMute(slide, playback.muted);
     r.resetImageZoom();
     r.missing.hidden = true;
     r.slideshowBadge.hidden = (post.media?.items?.length || post.media_items?.length || 0) < 2;
@@ -342,7 +358,7 @@ export class FeedView {
     } else r.video.removeAttribute('poster');
     if (type === 'image') {
       r.img.hidden = false;
-      r.img.alt = post.caption || '';
+      r.img.alt = displayText(post.caption);
       r.img.loading = index === this.pager.index ? 'eager' : 'lazy';
       r.img.decoding = 'async';
       r.img.fetchPriority = index === this.pager.index ? 'high' : 'low';
@@ -350,17 +366,18 @@ export class FeedView {
       setImage(r.img, preview, Math.min(720, device.mediaWidth), { quality: device.saveData ? 55 : 66, onFail: () => { if (slide._post !== post) return; r.img.hidden = true; r.missing.hidden = false; } });
     }
     else { r.img.onerror = null; r.img.removeAttribute('src'); }
-    r.text.textContent = type === 'text' ? post.caption : '';
+    r.text.textContent = type === 'text' ? displayText(post.caption) : '';
     paintAvatar(r.avatarNode, post.author, 40);
-    r.name.textContent = `@${post.author.username || post.author.name}`;
-    r.caption.textContent = type === 'text' ? '' : post.caption;
+    const authorName = displayText(post.author.username) || displayText(post.author.name);
+    r.name.textContent = authorName ? `@${authorName}` : t('profile');
+    r.caption.textContent = type === 'text' ? '' : displayText(post.caption);
     r.caption.classList.remove('open');
     this.#paintCounts(slide, post);
     this.#paintFollow(slide, post);
     if (post.kind === 'ad') {
-      r.name.textContent = post.ad.business || post.ad.title || '';
-      r.caption.textContent = [post.ad.title && post.ad.business ? post.ad.title : '', post.ad.description || ''].filter(Boolean).join(' — ');
-      r.adBar.querySelector('.ad-cta').textContent = `${post.ad.ctaLabel || (t('learnMore') === 'learnMore' ? 'Learn more' : t('learnMore'))} ›`;
+      r.name.textContent = displayText(post.ad.business) || displayText(post.ad.title);
+      r.caption.textContent = [post.ad.title && post.ad.business ? displayText(post.ad.title) : '', displayText(post.ad.description)].filter(Boolean).join(' — ');
+      r.adBar.querySelector('.ad-cta').textContent = `${displayText(post.ad.ctaLabel) || (t('learnMore') === 'learnMore' ? 'Learn more' : t('learnMore'))} ›`;
       r.adBar.querySelector('.ad-cta').hidden = !post.ad.destination;
     }
     if (post.kind === 'suggest') { r.name.textContent = ''; r.caption.textContent = ''; this.#paintSuggest(slide); }
@@ -372,9 +389,16 @@ export class FeedView {
     slide._refs.suggest.replaceChildren(h('b', { class: 'suggest-title' }, title),
       people.length ? h('div', { class: 'suggest-grid' }, ...people.map(person => h('div', { class: 'suggest-person' },
         h('button', { class: 'suggest-face', type: 'button', 'data-act': 'suggest-profile', 'data-uid': person.id }, avatar(person, 64)),
-        h('b', {}, person.name), h('small', { class: 'muted' }, person.mutual ? `${count(person.mutual)} ${t('followers').toLowerCase()}` : person.username ? `@${person.username}` : ''),
+        h('b', {}, displayText(person.name)), h('small', { class: 'muted' }, person.mutual ? `${count(person.mutual)} ${t('followers').toLowerCase()}` : displayText(person.username) ? `@${displayText(person.username)}` : ''),
         h('button', { class: 'pill-btn hot', type: 'button', 'data-act': 'suggest-follow', 'data-uid': person.id }, t('follow')))))
         : h('p', { class: 'muted center' }, '✓'));
+  }
+
+  #paintMute(slide, muted) {
+    const button = slide._refs?.mute;
+    if (!button) return;
+    button.classList.toggle('is-muted', muted);
+    button.setAttribute('aria-pressed', String(!muted));
   }
 
   #paintCounts(slide, post) {
@@ -450,7 +474,7 @@ export class FeedView {
           return;
         }
         const uid = target.dataset.uid;
-        if (act === 'suggest-follow' && uid) { event.stopPropagation(); if (this.hooks.requireLogin()) actions.follow(uid, true).catch(error => toast(error.message)); return; }
+        if (act === 'suggest-follow' && uid) { event.stopPropagation(); if (this.hooks.requireLogin()) actions.follow(uid, true).catch(error => toast(displayText(error?.message) || t('retry'))); return; }
         if (act === 'suggest-profile' && uid) { event.stopPropagation(); const person = this.promo.people.find(p => p.id === uid); this.hooks.openProfile(person || { id: uid }); return; }
         if (act === 'media' && mediaKind(post) === 'video') this.#tap(slide);
         return;
@@ -470,7 +494,7 @@ export class FeedView {
       event.stopPropagation();
       if (act === 'like') this.#like(post, !post.liked);
       else if (act === 'save') { if (this.hooks.requireLogin()) actions.save(post, !post.saved).catch(error => this.#actionFailed(error)); }
-      else if (act === 'follow') { if (this.hooks.requireLogin()) actions.follow(post.author.id, true).catch(error => toast(error.message)); }
+      else if (act === 'follow') { if (this.hooks.requireLogin()) actions.follow(post.author.id, true).catch(error => toast(displayText(error?.message) || t('retry'))); }
       else if (act === 'comment') this.hooks.openComments(post);
       else if (act === 'gift') { if (this.hooks.requireLogin()) this.hooks.openGifts({ postId: post.id, to: post.author }); }
       else if (act === 'share') this.#share(post);
@@ -501,7 +525,7 @@ export class FeedView {
 
   #actionFailed(error) {
     if (error?.status === 401 || !auth.signedIn()) { this.hooks.requireLogin(true); return; }
-    toast(error?.message || t('retry'));
+    toast(displayText(error?.message) || t('retry'));
   }
 
   #burst(slide, x, y) {
@@ -513,6 +537,6 @@ export class FeedView {
 
   async #share(post) {
     const url = `${location.origin}/share/${encodeURIComponent(post.id)}`;
-    openShare({ title: post.author.name || 'MilkyWay', text: (post.caption || '').slice(0, 120), url });
+    openShare({ title: displayText(post.author?.name) || 'MilkyWay', text: displayText(post.caption).slice(0, 120), url });
   }
 }

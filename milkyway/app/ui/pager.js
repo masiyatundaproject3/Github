@@ -147,9 +147,9 @@ export class VerticalPager {
     root.addEventListener('pointerdown', event => {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
       if (event.isPrimary === false) { start = null; locked = null; return; }
-      if (blocked(event.target) || this.items.length < 2) return;
+      if (blocked(event.target) || !this.items.length || (this.items.length < 2 && !this.options.onHorizontalSwipe)) return;
       start = { x: event.clientX, y: event.clientY, id: event.pointerId };
-      samples = [{ y: event.clientY, t: event.timeStamp }];
+      samples = [{ x: event.clientX, y: event.clientY, t: event.timeStamp }];
       locked = null;
     }, { signal, passive: true });
 
@@ -165,20 +165,37 @@ export class VerticalPager {
           root.classList.add('vp-dragging');
         }
       }
+      if (locked === 'x') {
+        samples.push({ x: event.clientX, y: event.clientY, t: event.timeStamp });
+        if (samples.length > 6) samples.shift();
+        return;
+      }
       if (locked !== 'y') return;
       const atEdge = (this.index === 0 && dy > 0) || (this.index === this.items.length - 1 && dy < 0);
       this.offset = atEdge ? dy * 0.28 : dy; // rubber band at the ends
-      samples.push({ y: event.clientY, t: event.timeStamp });
+      samples.push({ x: event.clientX, y: event.clientY, t: event.timeStamp });
       if (samples.length > 6) samples.shift();
       if (!frame) frame = requestAnimationFrame(paint);
     }, { signal, passive: true });
 
     const end = event => {
       if (!start || event.pointerId !== start.id) return;
-      const wasDrag = locked === 'y';
+      const direction = locked;
+      const dx = event.clientX - start.x;
       start = null;
       root.classList.remove('vp-dragging');
-      if (!wasDrag) return;
+      if (direction === 'x' && this.options.onHorizontalSwipe) {
+        const first = samples[0], last = samples[samples.length - 1];
+        const velocity = first && last && last.t > first.t ? (last.x - first.x) / (last.t - first.t) : 0;
+        const threshold = Math.max(56, root.clientWidth * 0.18);
+        if (Math.abs(dx) < threshold && Math.abs(velocity) < 0.45) return;
+        const swallow = e => { e.stopImmediatePropagation(); e.preventDefault(); };
+        root.addEventListener('click', swallow, { capture: true, once: true });
+        setTimeout(() => root.removeEventListener('click', swallow, { capture: true }), 60);
+        this.options.onHorizontalSwipe?.(dx < 0 ? 'left' : 'right', this.current);
+        return;
+      }
+      if (direction !== 'y' || this.items.length < 2) return;
       cancelAnimationFrame(frame); frame = 0;
       const first = samples[0], last = samples[samples.length - 1];
       const velocity = last && first && last.t > first.t ? (last.y - first.y) / (last.t - first.t) : 0; // px/ms

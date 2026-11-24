@@ -33,6 +33,7 @@ const giftTray = lazy(() => import('./ui/gift-tray.js').then(m => new m.GiftTray
   onTopUp: () => novaMenu().then(menu => menu.openWallet()),
 })));
 const inboxView = lazy(() => import('./ui/inbox-view.js').then(m => new m.InboxView()));
+const followersView = lazy(() => import('./ui/followers-view.js').then(m => new m.FollowersView({ openProfile })));
 const walkieTalkieView = lazy(() => import('./ui/walkie-talkie.js').then(m => new m.WalkieTalkieView()));
 const callView = lazy(() => import('./ui/call-view.js').then(m => m.calls));
 const novaMenu = lazy(() => import('./ui/settings-view.js').then(m => new m.NovaMenu({
@@ -77,9 +78,9 @@ function requireLogin(force = false) {
   return false;
 }
 // Any author (feed / Lives) or, with no argument, the signed-in user's own profile.
-function openProfile(person = null) {
+function openProfile(person = null, options = {}) {
   if (!person?.id && !requireLogin()) return;
-  profileView().then(view => view.open(person?.id ? person : null));
+  profileView().then(view => view.open(person?.id ? person : null, options));
 }
 function openCreate() {
   if (requireLogin()) composeSheet().then(sheet => sheet.open());
@@ -89,6 +90,7 @@ function openCreate() {
 const feedView = new FeedView($('feedView'), {
   requireLogin,
   openProfile,
+  openFollowers: person => followersView().then(view => view.open(person)),
   openComments: post => commentsSheet().then(sheet => sheet.open(post)),
   openGifts: target => giftTray().then(tray => tray.open(target)),
   openPost,
@@ -160,7 +162,7 @@ function route() {
 addEventListener('popstate', route);
 
 document.addEventListener('click', event => {
-  const target = event.target.closest('[data-scope], [data-nav], #liveEntry, #walkieEntry, #muteToggle, #profileSearch');
+  const target = event.target.closest('[data-scope], [data-nav], #liveEntry, #walkieEntry, #profileSearch');
   if (!target) return;
   if (target.dataset.scope) { if (shell.dataset.view !== 'home') showHome(); setScope(target.dataset.scope); return; }
   if (target.id === 'liveEntry') { showLive(); return; }
@@ -171,7 +173,6 @@ document.addEventListener('click', event => {
     });
     return;
   }
-  if (target.id === 'muteToggle') { playback.setMuted(!playback.muted); return; }
   if (target.id === 'profileSearch') { profileSearch().then(view => view.open()); return; }
   const nav = target.dataset.nav;
   if (nav === 'home') { if (shell.dataset.view === 'home') feedView.reload(); else showHome(); }
