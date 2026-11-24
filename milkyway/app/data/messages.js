@@ -6,6 +6,7 @@ import { api, rest, auth, supabase } from '../core/net.js';
 import { bus } from '../core/events.js';
 import { inbox } from './chats.js';
 import { removeChatMedia, sendViewOnce, uploadChatMedia } from './chat-media.js';
+import { safePublicText } from './usernames.js';
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const listeners = new Set();
@@ -120,6 +121,16 @@ export async function searchPeople(query) {
   if (q.length < 2) return [];
   const pattern = encodeURIComponent(`*${q}*`);
   const rows = await rest(`mw_profiles?select=id,display_name,username,avatar_url&or=(username.ilike.${pattern},display_name.ilike.${pattern})&limit=20`);
-  return (rows || []).filter(row => String(row.id) !== auth.userId)
-    .map(row => ({ id: String(row.id), name: row.display_name || row.username || 'MilkyWay', username: row.username || '', avatar: row.avatar_url || '' }));
+  return (rows || []).filter(row => row && row.id != null
+    && !/^(?:null|undefined)$/i.test(String(row.id))
+    && String(row.id) !== auth.userId)
+    .map(row => {
+      const username = safePublicText(row.username).replace(/^@/, '').toLowerCase();
+      const name = safePublicText(row.display_name) || username || 'MilkyWay';
+      const avatar = typeof row.avatar_url === 'string'
+        && !/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i.test(row.avatar_url)
+        && !/\b(?:null|undefined)\b/i.test(row.avatar_url)
+        ? row.avatar_url : '';
+      return { id: String(row.id), name, username, avatar };
+    });
 }
