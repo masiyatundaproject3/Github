@@ -56,6 +56,19 @@ export class ChatComposer {
       class: 'chat-tool chat-video-note', type: 'button', 'aria-pressed': 'false', 'aria-label': t('recordVideoNote'),
       title: t('recordVideoNote'), onclick: () => this.#record('video'),
     }, '◉');
+    this.noteMenu = h('div', { class: 'chat-note-menu', role: 'group', 'aria-label': t('mediaNoteOptions'), hidden: true },
+      this.voice, this.video);
+    this.noteButton = this.#tool(t('mediaNoteOptions'), '◉', () => {
+      this.noteMenu.hidden = !this.noteMenu.hidden;
+      this.noteButton.setAttribute('aria-expanded', String(!this.noteMenu.hidden));
+    });
+    this.noteButton.classList.add('chat-note-toggle');
+    this.noteButton.setAttribute('aria-haspopup', 'true');
+    this.noteMenu.id = `chatNoteOptions-${Math.random().toString(36).slice(2)}`;
+    this.noteButton.setAttribute('aria-controls', this.noteMenu.id);
+    this.voice.addEventListener('click', () => { this.noteMenu.hidden = true; this.noteButton.setAttribute('aria-expanded', 'false'); });
+    this.video.addEventListener('click', () => { this.noteMenu.hidden = true; this.noteButton.setAttribute('aria-expanded', 'false'); });
+    this.walkieSlot = h('div', { class: 'dm-walkie-controls', 'aria-label': t('walkieTalkie') });
     this.once = h('button', {
       class: 'chat-tool chat-view-once', type: 'button', 'aria-pressed': 'false',
       title: t('viewOnce'), 'aria-label': t('viewOnce'),
@@ -66,7 +79,9 @@ export class ChatComposer {
     this.form = h('form', { class: 'msg-form dm-composer', onsubmit: event => { event.preventDefault(); this.#submit(); } },
       this.preview,
       h('div', { class: 'dm-composer-row' }, this.attachment, this.input,
-        h('div', { class: 'dm-composer-actions' }, this.once, this.voice, this.voiceEffectButton, this.video, this.voicePresetSelect), this.send),
+        h('div', { class: 'dm-composer-actions' }, this.once,
+          h('div', { class: 'chat-note-group' }, this.noteButton, this.noteMenu),
+          this.voiceEffectButton, this.voicePresetSelect, this.walkieSlot), this.send),
       this.picker);
     this.picker.addEventListener('change', () => {
       const file = this.picker.files?.[0];
@@ -253,6 +268,9 @@ export class ChatComposer {
       this.recordingStarting = false;
       this.voice.classList.toggle('is-recording', kind === 'audio');
       this.video.classList.toggle('is-recording', kind === 'video');
+      this.noteButton.classList.toggle('is-recording', true);
+      this.noteButton.title = kind === 'audio' ? t('recordVoiceNote') : t('recordVideoNote');
+      this.noteButton.setAttribute('aria-label', this.noteButton.title);
       this.voice.setAttribute('aria-pressed', String(kind === 'audio'));
       this.video.setAttribute('aria-pressed', String(kind === 'video'));
       this.voice.setAttribute('aria-label', kind === 'audio' ? t('stopRecording') : t('recordVoiceNote'));
@@ -325,6 +343,9 @@ export class ChatComposer {
     this.video.setAttribute('aria-label', t('recordVideoNote'));
     this.voice.title = t('recordVoiceNote');
     this.video.title = t('recordVideoNote');
+    this.noteButton.classList.remove('is-recording');
+    this.noteButton.title = t('mediaNoteOptions');
+    this.noteButton.setAttribute('aria-label', t('mediaNoteOptions'));
   }
 }
 

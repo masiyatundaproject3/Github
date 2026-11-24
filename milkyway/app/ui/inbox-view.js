@@ -15,6 +15,7 @@ import { GroupChatSheet, GroupCreateSheet, joinAndOpenGroup } from './group-view
 import { ChatComposer, mediaMessageContent } from './chat-composer.js';
 import { WatchParty, watchableUrl } from './watch-party.js';
 import { bindLongPress } from './long-press.js';
+import { WalkieTalkieView } from './walkie-talkie.js';
 
 const phoneIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1L6.6 10.8z"/></svg>';
 const backIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.4 4.6 14 3.2 5.2 12l8.8 8.8 1.4-1.4L8 12z"/></svg>';
@@ -233,7 +234,7 @@ export class InboxView {
 
 class ChatSheet {
   constructor() {
-    this.sheet = new Sheet({ title: '', className: 'chat-sheet', onClose: () => { this.peer = null; this.composer.cancelRecording(); this.watchParty.leave(); this.#clearRevealed(); } });
+    this.sheet = new Sheet({ title: '', className: 'chat-sheet', onClose: () => { this.peer = null; this.composer.cancelRecording(); this.walkie.detachFromDm(); this.watchParty.leave(); this.#clearRevealed(); } });
     this.sheet.heading.hidden = true;
     this.name = h('b', {});
     this.state = h('small', { class: 'muted' });
@@ -244,16 +245,31 @@ class ChatSheet {
       onSendText: (text, viewOnce) => this.#send(text, viewOnce),
       onSendMedia: media => this.#sendMedia(media),
     });
+    this.walkie = new WalkieTalkieView();
     this.watchParty = new WatchParty();
     const iconBtn = (label, html, onclick) => h('button', { class: 'icon-btn chat-call', type: 'button', 'aria-label': label, title: label, html, onclick });
+    let callMenuButton;
+    const closeCallMenu = () => {
+      callMenu.hidden = true;
+      callMenuButton?.setAttribute('aria-expanded', 'false');
+    };
+    const callMenu = h('div', { class: 'chat-header-menu', role: 'menu', hidden: true },
+      h('button', { class: 'chat-header-menu-item', type: 'button', role: 'menuitem', html: phoneIcon, onclick: () => { closeCallMenu(); if (this.peer) calls.start(this.peer.id, 'audio'); } }, t('audioCall')),
+      h('button', { class: 'chat-header-menu-item', type: 'button', role: 'menuitem', html: icon.camera, onclick: () => { closeCallMenu(); if (this.peer) calls.start(this.peer.id, 'video'); } }, t('videoCall')),
+      h('button', { class: 'chat-header-menu-item', type: 'button', role: 'menuitem', html: icon.play, onclick: () => { closeCallMenu(); this.watchParty.openPanel(); } }, t('watchTogether')));
+    callMenu.id = 'dmConversationActions';
+    callMenuButton = iconBtn(t('conversationActions'), icon.gear, () => {
+      callMenu.hidden = !callMenu.hidden;
+      callMenuButton.setAttribute('aria-expanded', String(!callMenu.hidden));
+    });
+    callMenuButton.setAttribute('aria-haspopup', 'menu');
+    callMenuButton.setAttribute('aria-controls', callMenu.id);
     this.sheet.body.append(
       h('header', { class: 'chat-head' },
         iconBtn(t('back'), backIcon, () => this.sheet.close()),
         this.face,
         h('div', { class: 'chat-who' }, this.name, this.state),
-        iconBtn(t('audioCall'), phoneIcon, () => this.peer && calls.start(this.peer.id, 'audio')),
-        iconBtn(t('videoCall'), icon.camera, () => this.peer && calls.start(this.peer.id, 'video')),
-        iconBtn(t('watchTogether'), icon.play, () => this.watchParty.openPanel())),
+        h('div', { class: 'chat-header-actions' }, callMenuButton, callMenu)),
       this.watchParty.root,
       this.list, this.composer.form);
     this.messages = new Map();
@@ -266,6 +282,7 @@ class ChatSheet {
     this.watchParty.join('dm', person.id).catch(error => toast(error?.message || t('watchConnectFailed')));
     this.#clearRevealed();
     this.peer = { ...person, ...(profiles.peek(person.id) || {}), ...person };
+    this.walkie.attachToDm(this.peer, this.composer.walkieSlot);
     this.name.textContent = this.peer.name || 'MilkyWay';
     this.face.replaceChildren(presenceAvatar(this.peer, 38));
     this.#paintState();

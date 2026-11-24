@@ -171,7 +171,7 @@
             if (required.has(path)) throw error;
           });
         })))
-        .then(() => self.skipWaiting()));
+        .then(() => options.skipWaiting === false ? undefined : self.skipWaiting()));
     });
 
     self.addEventListener('activate', event => {

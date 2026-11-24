@@ -59,6 +59,7 @@ export class WalkieTalkieView {
       'aria-label': t('chooseConversation'),
       onchange: () => this.#selectionChanged(),
     }, h('option', { value: '' }, t('chooseConversation')));
+    this.hint = h('p', { class: 'walkie-hint' }, t('walkieHint'));
     this.speaker = h('p', { class: 'walkie-speaker', role: 'status', 'aria-live': 'polite', hidden: true });
     this.player = h('audio', { class: 'walkie-player', controls: true, preload: 'none', hidden: true });
     this.status = h('p', { class: 'walkie-status', role: 'status', 'aria-live': 'polite' });
@@ -106,7 +107,7 @@ export class WalkieTalkieView {
     });
     this.sheet.body.append(
       this.target,
-      h('p', { class: 'walkie-hint' }, t('walkieHint')),
+      this.hint,
       this.speaker,
       this.player,
       this.button,
@@ -129,6 +130,39 @@ export class WalkieTalkieView {
       this.button.disabled = true;
       this.status.textContent = t('recordingFailed');
     }
+  }
+
+  attachToDm(person, host) {
+    if (!person?.id || !host) return;
+    if (this.sheet.isOpen) this.sheet.close();
+    this.cancelRecording();
+    this.#stopGroupListening();
+    this.inlineHost = host;
+    this.target.replaceChildren(h('option', { value: `dm:${person.id}` }, person.name || 'MilkyWay'));
+    this.target.value = `dm:${person.id}`;
+    this.target.hidden = true;
+    this.hint.hidden = true;
+    this.speaker.hidden = true;
+    this.player.hidden = true;
+    host.replaceChildren(this.button, this.time, this.status);
+    this.button.classList.add('walkie-talk-button-inline');
+    this.status.classList.add('walkie-inline-status');
+    this.#updateControls();
+  }
+
+  detachFromDm() {
+    if (!this.inlineHost) return;
+    this.cancelRecording();
+    this.inlineHost.replaceChildren();
+    this.inlineHost = null;
+    this.button.classList.remove('walkie-talk-button-inline');
+    this.status.classList.remove('walkie-inline-status');
+    this.target.hidden = false;
+    this.hint.hidden = false;
+    this.sheet.body.append(this.target, this.hint, this.speaker, this.player, this.button, this.time, this.status);
+    this.target.replaceChildren(h('option', { value: '' }, t('chooseConversation')));
+    this.target.value = '';
+    this.#updateControls();
   }
 
   async open() {

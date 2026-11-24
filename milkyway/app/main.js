@@ -5,7 +5,6 @@
 //   2. This module reads the session from localStorage (sync) and the feed from IndexedDB (~10–30 ms).
 //   3. The cached feed renders; video #1 starts. Network refresh, supabase-js, LiveKit and every sheet load later,
 //      in the background or on first use.
-import { config } from './config.js';
 import { auth, supabase } from './core/net.js';
 import { bus, idle } from './core/events.js';
 import { t } from './core/i18n.js';
@@ -43,7 +42,6 @@ function openCommunity() {
   if (!requireLogin()) return;
   followersView().then(view => view.open({ id: auth.userId, name: auth.name }, { tab: 'suggested' }));
 }
-const walkieTalkieView = lazy(() => import('./ui/walkie-talkie.js').then(m => new m.WalkieTalkieView()));
 const callView = lazy(() => import('./ui/call-view.js').then(m => m.calls));
 const novaMenu = lazy(() => import('./ui/settings-view.js').then(m => new m.NovaMenu({
   openProfilePhoto: file => {
@@ -173,18 +171,11 @@ function route() {
 addEventListener('popstate', route);
 
 document.addEventListener('click', event => {
-  const target = event.target.closest('[data-scope], [data-community], [data-nav], #liveEntry, #walkieEntry, #profileSearch');
+  const target = event.target.closest('[data-scope], [data-community], [data-nav], #liveEntry, #profileSearch');
   if (!target) return;
   if (target.dataset.scope) { if (shell.dataset.view !== 'home') showHome(); setScope(target.dataset.scope); return; }
   if (target.hasAttribute('data-community')) { openCommunity(); return; }
   if (target.id === 'liveEntry') { showLive(); return; }
-  if (target.id === 'walkieEntry') {
-    if (requireLogin()) walkieTalkieView().then(view => view.open()).catch(error => {
-      console.error('[walkie-talkie] view could not be opened', error);
-      toast(error?.message || t('recordingFailed'));
-    });
-    return;
-  }
   if (target.id === 'profileSearch') { profileSearch().then(view => view.open()); return; }
   const nav = target.dataset.nav;
   if (nav === 'home') { if (shell.dataset.view === 'home') feedView.reload(); else showHome(); }
@@ -304,6 +295,6 @@ idle(() => {
       }
     });
   }
-  startUpdateCheck(config.deploymentId);
+  startUpdateCheck();
   initPushNotifications();
 }, 2500);
