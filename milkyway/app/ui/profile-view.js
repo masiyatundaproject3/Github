@@ -76,6 +76,213 @@ async function validateProfilePhoto(file) {
   }
 }
 
+class ProfileCropSheet {
+  constructor() {
+    this.sheet = new Sheet({ title: t('cropProfileImage'), className: 'profile-crop-sheet', autoFocus: false, onClose: () => this.#finish(null) });
+    this.mode = 'avatar';
+    this.imageUrl = '';
+    this.resolve = null;
+    this.pointers = new Map();
+    this.zoom = 1;
+    this.panX = 0;
+    this.panY = 0;
+    this.frame = h('div', { class: 'profile-crop-frame', 'data-no-swipe': true });
+    this.image = h('img', { class: 'profile-crop-image', alt: '', draggable: 'false' });
+    this.frame.append(this.image);
+    this.message = h('p', { class: 'muted profile-crop-hint' }, t('cropProfileHint'));
+    this.zoomOut = h('button', { class: 'profile-crop-control', type: 'button', 'aria-label': t('zoomOut'), title: t('zoomOut'), onclick: () => this.#setZoom(this.zoom - 0.15) }, '−');
+    this.zoomSlider = h('input', {
+      class: 'profile-crop-slider', type: 'range', min: '1', max: '4', step: '0.01', value: '1',
+      'aria-label': t('zoomProfileImage'), oninput: () => this.#setZoom(Number(this.zoomSlider.value)),
+    });
+    this.zoomIn = h('button', { class: 'profile-crop-control', type: 'button', 'aria-label': t('zoomIn'), title: t('zoomIn'), onclick: () => this.#setZoom(this.zoom + 0.15) }, '+');
+    this.resetButton = h('button', { class: 'profile-crop-reset', type: 'button', onclick: () => this.#reset() }, t('resetCrop'));
+    this.cancelButton = h('button', { class: 'pill-btn profile-crop-cancel', type: 'button', onclick: () => this.sheet.close() }, t('cancel'));
+    this.applyButton = h('button', { class: 'pill-btn hot profile-crop-apply', type: 'button', onclick: () => { void this.#crop(); } }, t('applyCrop'));
+    this.actions = h('div', { class: 'profile-crop-actions' }, this.cancelButton, this.applyButton);
+    this.sheet.body.replaceChildren(
+      this.frame,
+      this.message,
+      h('div', { class: 'profile-crop-zoom' }, this.zoomOut, this.zoomSlider, this.zoomIn, this.resetButton),
+      this.actions);
+    this.frame.addEventListener('pointerdown', event => this.#pointerDown(event));
+    this.frame.addEventListener('pointermove', event => this.#pointerMove(event));
+    this.frame.addEventListener('pointerup', event => this.#pointerEnd(event));
+    this.frame.addEventListener('pointercancel', event => this.#pointerEnd(event));
+    this.frame.addEventListener('lostpointercapture', event => this.#pointerEnd(event));
+    this.resizeObserver = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(() => this.#paint()) : null;
+    this.resizeObserver?.observe(this.frame);
+  }
+
+  async open(file, mode) {
+    this.mode = mode;
+    this.sheet.title = t(mode === 'cover' ? 'cropCoverPhoto' : 'cropProfileImage');
+    this.frame.dataset.mode = mode;
+    this.zoom = 1;
+    this.panX = 0;
+    this.panY = 0;
+    this.zoomSlider.value = '1';
+    this.message.textContent = t('cropProfileHint');
+    this.applyButton.disabled = false;
+    this.imageUrl = URL.createObjectURL(file);
+    this.image.src = this.imageUrl;
+    const finished = new Promise(resolve => { this.resolve = resolve; });
+    this.sheet.open();
+    try {
+      await new Promise((resolve, reject) => {
+        if (this.image.complete && this.image.naturalWidth) resolve();
+        else {
+          this.image.addEventListener('load', resolve, { once: true });
+          this.image.addEventListener('error', () => reject(new Error(t('photoUnsupported'))), { once: true });
+        }
+      });
+    } catch (error) {
+      this.sheet.close();
+      throw error;
+    }
+    this.#paint();
+    return finished;
+  }
+
+  #frameSize() {
+    const rect = this.frame.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  }
+
+  #scale() {
+    const { width, height } = this.#frameSize();
+    if (!width || !height || !this.image.naturalWidth || !this.image.naturalHeight) return 1;
+    return Math.max(width / this.image.naturalWidth, height / this.image.naturalHeight) * this.zoom;
+  }
+
+  #paint() {
+    const { width, height } = this.#frameSize();
+    if (!width || !height || !this.image.naturalWidth || !this.image.naturalHeight) return;
+    const baseScale = Math.max(width / this.image.naturalWidth, height / this.image.naturalHeight);
+    const imageWidth = this.image.naturalWidth * baseScale;
+    const imageHeight = this.image.naturalHeight * baseScale;
+    const maxX = Math.max(0, (imageWidth * this.zoom - width) / 2);
+    const maxY = Math.max(0, (imageHeight * this.zoom - height) / 2);
+    this.panX = Math.max(-maxX, Math.min(maxX, this.panX));
+    this.panY = Math.max(-maxY, Math.min(maxY, this.panY));
+    this.image.style.width = `${imageWidth}px`;
+    this.image.style.height = `${imageHeight}px`;
+    this.image.style.setProperty('--crop-x', `${this.panX}px`);
+    this.image.style.setProperty('--crop-y', `${this.panY}px`);
+    this.image.style.setProperty('--crop-zoom', this.zoom);
+  }
+
+  #setZoom(value, anchor = null) {
+    const next = Math.max(1, Math.min(4, value));
+    if (anchor && this.zoom > 0) {
+      const rect = this.frame.getBoundingClientRect();
+      const x = anchor.x - rect.left - rect.width / 2;
+      const y = anchor.y - rect.top - rect.height / 2;
+      const ratio = next / this.zoom;
+      this.panX = x - (x - this.panX) * ratio;
+      this.panY = y - (y - this.panY) * ratio;
+    }
+    this.zoom = next;
+    this.zoomSlider.value = String(next);
+    this.#paint();
+  }
+
+  #reset() {
+    this.zoom = 1;
+    this.panX = 0;
+    this.panY = 0;
+    this.zoomSlider.value = '1';
+    this.#paint();
+  }
+
+  #pointerDown(event) {
+    if (event.button !== undefined && event.button !== 0) return;
+    event.preventDefault();
+    this.frame.setPointerCapture?.(event.pointerId);
+    this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    this.#snapshotGesture();
+  }
+
+  #snapshotGesture() {
+    const points = [...this.pointers.values()];
+    this.gesture = {
+      points,
+      zoom: this.zoom,
+      panX: this.panX,
+      panY: this.panY,
+      distance: points.length > 1 ? Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y) : 0,
+      center: points.length > 1 ? { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 } : null,
+    };
+  }
+
+  #pointerMove(event) {
+    if (!this.pointers.has(event.pointerId) || !this.gesture) return;
+    event.preventDefault();
+    this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const points = [...this.pointers.values()];
+    if (points.length > 1 && this.gesture.distance > 0) {
+      const distance = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
+      const center = { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
+      this.zoom = Math.max(1, Math.min(4, this.gesture.zoom * distance / this.gesture.distance));
+      this.panX = this.gesture.panX + center.x - this.gesture.center.x;
+      this.panY = this.gesture.panY + center.y - this.gesture.center.y;
+      this.zoomSlider.value = String(this.zoom);
+    } else if (points.length === 1 && this.gesture.points.length === 1) {
+      this.panX = this.gesture.panX + points[0].x - this.gesture.points[0].x;
+      this.panY = this.gesture.panY + points[0].y - this.gesture.points[0].y;
+    }
+    this.#paint();
+  }
+
+  #pointerEnd(event) {
+    if (!this.pointers.delete(event.pointerId)) return;
+    this.#snapshotGesture();
+  }
+
+  async #crop() {
+    if (this.applyButton.disabled) return;
+    this.applyButton.disabled = true;
+    try {
+      const { width, height } = this.#frameSize();
+      const scale = this.#scale();
+      if (!width || !height || !scale) throw new Error(t('photoCropFailed'));
+      const sourceX = Math.max(0, Math.min(this.image.naturalWidth, this.image.naturalWidth / 2 - this.panX / scale));
+      const sourceY = Math.max(0, Math.min(this.image.naturalHeight, this.image.naturalHeight / 2 - this.panY / scale));
+      const sourceWidth = Math.min(this.image.naturalWidth - sourceX, width / scale);
+      const sourceHeight = Math.min(this.image.naturalHeight - sourceY, height / scale);
+      const outputWidth = this.mode === 'cover' ? 1600 : 1024;
+      const outputHeight = Math.round(outputWidth * height / width);
+      const canvas = document.createElement('canvas');
+      canvas.width = outputWidth;
+      canvas.height = outputHeight;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error(t('photoCropFailed'));
+      context.drawImage(this.image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, outputWidth, outputHeight);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+      if (!blob) throw new Error(t('photoCropFailed'));
+      const file = new File([blob], `${this.mode}-photo.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
+      this.#finish(file);
+      this.sheet.close();
+    } catch (error) {
+      this.message.textContent = error instanceof Error && error.message === t('photoCropFailed')
+        ? error.message : t('photoCropFailed');
+      this.applyButton.disabled = false;
+    }
+  }
+
+  #finish(value) {
+    const resolve = this.resolve;
+    this.resolve = null;
+    this.pointers.clear();
+    this.gesture = null;
+    if (this.imageUrl) URL.revokeObjectURL(this.imageUrl);
+    this.imageUrl = '';
+    this.image.removeAttribute('src');
+    resolve?.(value);
+  }
+}
+
 function missingProfileColumn(error, columns) {
   const message = String(error?.message || '');
   if (!['PGRST204', '42703'].includes(String(error?.code || ''))
@@ -115,6 +322,7 @@ export class ProfileView {
     this.token = 0;
     this.posts = [];
     this.viewer = null;
+    this.cropper = new ProfileCropSheet();
     this.historyEntry = null;
     this.historyPopPending = null;
     this.handlingProfilePop = false;
@@ -306,6 +514,109 @@ export class ProfileView {
     this.open(null, { photo: file });
   }
 
+  #quickPickImage(mode) {
+    if (!this.own || !auth.userId) return;
+    const input = h('input', { type: 'file', accept: 'image/*,.heic,.heif', hidden: true });
+    document.body.append(input);
+    let handled = false;
+    const cleanup = () => {
+      if (handled) return;
+      handled = true;
+      input.remove();
+    };
+    input.addEventListener('cancel', cleanup, { once: true });
+    input.addEventListener('change', () => {
+      const file = input.files?.[0] || null;
+      cleanup();
+      if (file) void this.#frameAndSaveImage(file, mode);
+    }, { once: true });
+    try { openFilePicker(input); }
+    catch (error) {
+      cleanup();
+      console.warn('[profile] image picker could not be opened.', error);
+      toast(t('mediaPickerUnavailable'));
+    }
+  }
+
+  async #frameAndSaveImage(file, mode) {
+    try {
+      await validateProfilePhoto(file);
+      const optimized = await optimizeImage(file);
+      const framed = await this.cropper.open(optimized.full, mode);
+      if (framed) await this.#saveQuickImage(framed, mode);
+    } catch (error) {
+      console.warn('[profile] image framing failed.', error);
+      const message = profileText(error?.message);
+      toast(message === t('photoTooLarge') || message === t('photoUnsupported') ? message : t('photoCropFailed'));
+    }
+  }
+
+  async #saveQuickImage(file, mode) {
+    let uploadedPath = '';
+    try {
+      const sb = await supabase();
+      const info = await identifyMediaFile(file);
+      if (info.kind !== 'image' || !['image/jpeg', 'image/png', 'image/webp'].includes(info.type)) {
+        throw new Error(t('photoUnsupported'));
+      }
+      if (file.size > PROFILE_PHOTO_MAX_BYTES) throw new Error(t('photoTooLarge'));
+      const folder = mode === 'cover' ? 'covers' : 'avatars';
+      uploadedPath = `milkyway/${auth.userId}/${folder}/${crypto.randomUUID()}.${info.extension}`;
+      const { error: uploadError } = await sb.storage.from('portfolio').upload(uploadedPath, file, {
+        contentType: info.type,
+        cacheControl: '3600',
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+      const url = sb.storage.from('portfolio').getPublicUrl(uploadedPath)?.data?.publicUrl;
+      if (!url) throw new Error(t('photoUploadFailed'));
+
+      let saved;
+      if (mode === 'cover') {
+        const result = await sb.from('mw_profiles').update({ cover_url: url }).eq('id', auth.userId)
+          .select('id,cover_url').maybeSingle();
+        if (result.error && missingProfileColumn(result.error, ['cover_url']) === 'cover_url') {
+          cacheCover(auth.userId, url);
+          saved = { id: auth.userId, cover_url: url };
+        } else {
+          if (result.error) throw result.error;
+          if (!result.data) throw new Error(t('profileSettingsUnavailable'));
+          saved = result.data;
+          cacheCover(auth.userId, '');
+        }
+      } else {
+        const result = await sb.from('mw_profiles').update({ avatar_url: url }).eq('id', auth.userId)
+          .select('id,avatar_url').maybeSingle();
+        if (result.error) throw result.error;
+        if (!result.data || result.data.avatar_url !== url) throw new Error(t('profileSettingsUnavailable'));
+        saved = result.data;
+      }
+      const current = profiles.peek(auth.userId) || {};
+      profiles.update({
+        ...current,
+        id: auth.userId,
+        avatar: mode === 'avatar' ? saved.avatar_url : current.avatar || '',
+        cover: mode === 'cover' ? saved.cover_url || cachedCover(auth.userId) : current.cover || cachedCover(auth.userId),
+      });
+      this.#load(this.id);
+      toast('✓');
+    } catch (error) {
+      if (uploadedPath) {
+        try {
+          const client = await supabase();
+          const { error: cleanupError } = await client.storage.from('portfolio').remove([uploadedPath]);
+          if (cleanupError) console.error('[profile] failed to clean up an unlinked photo upload', cleanupError);
+        } catch (cleanupError) {
+          console.error('[profile] failed to clean up an unlinked photo upload', cleanupError);
+        }
+      }
+      console.error('[profile] quick image update failed.', error);
+      const message = profileText(error?.message);
+      toast([t('photoUnsupported'), t('photoTooLarge'), t('photoUploadFailed'), t('profileSettingsUnavailable')].includes(message)
+        ? message : t('profileSettingsUnavailable'));
+    }
+  }
+
   async #load(id) {
     const token = ++this.token;
     this.mode = 'profile';
@@ -492,12 +803,12 @@ export class ProfileView {
       ? h('button', {
         class: 'profile-cover-shortcut', type: 'button',
         'aria-label': t('changeCoverPhoto'), title: t('changeCoverPhoto'),
-        onclick: () => this.#edit(profile, { openCoverPicker: true }),
+        onclick: () => this.#quickPickImage('cover'),
       }, h('span', { 'aria-hidden': 'true' }, '+'))
       : null;
     const profileAvatar = avatar({ ...profile, name: profileText(profile.name) }, 84);
     const avatarControl = this.own
-      ? h('button', { class: 'profile-avatar-shortcut', type: 'button', 'aria-label': t('changeProfilePhoto'), onclick: () => this.#edit(profile, { openPicker: true }) },
+      ? h('button', { class: 'profile-avatar-shortcut', type: 'button', 'aria-label': t('changeProfilePhoto'), onclick: () => this.#quickPickImage('avatar') },
         h('span', { class: `presence-avatar${presence.isOnline(profile.id) || presence.visible ? ' online' : ''}`, 'data-presence': profile.id },
           profileAvatar, h('i', { class: 'presence-dot', 'aria-hidden': 'true' })))
       : h('span', { class: `presence-avatar${presence.isOnline(profile.id) ? ' online' : ''}`, 'data-presence': profile.id },

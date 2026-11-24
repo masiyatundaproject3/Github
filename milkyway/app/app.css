@@ -650,6 +650,43 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
   box-shadow: inset 0 1px rgba(255,255,255,.16), 0 0 15px rgba(155,92,255,.38);
 }
 .profile-cover-shortcut:hover { border-color: rgba(255,255,255,.9); box-shadow: 0 0 18px rgba(155,92,255,.55); }
+.profile-crop-sheet { max-height: min(88dvh, 720px); padding: 0 16px calc(14px + env(safe-area-inset-bottom)); }
+.profile-crop-sheet .sheet-body { align-items: center; gap: 12px; }
+.profile-crop-frame {
+  position: relative; width: min(100%, 440px); aspect-ratio: 1; overflow: hidden;
+  border: 1px solid rgba(194,174,255,.38); border-radius: 18px;
+  background:
+    url("../galaxy-starfield.svg") center / 360px 420px,
+    radial-gradient(120% 90% at 50% 0%, #21185c, #070a24 72%);
+  box-shadow: inset 0 0 28px rgba(155,92,255,.18), 0 12px 30px rgba(0,0,0,.32);
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.profile-crop-frame[data-mode="cover"] { width: min(100%, 520px); aspect-ratio: 2.2; }
+.profile-crop-image {
+  position: absolute; top: 50%; left: 50%; max-width: none; max-height: none;
+  transform: translate(calc(-50% + var(--crop-x, 0px)), calc(-50% + var(--crop-y, 0px))) scale(var(--crop-zoom, 1));
+  transform-origin: center; pointer-events: none; user-select: none; -webkit-user-drag: none;
+}
+.profile-crop-hint { max-width: 38ch; margin: 0; color: var(--muted); font-size: 12px; text-align: center; }
+.profile-crop-zoom { width: min(100%, 440px); display: flex; align-items: center; gap: 8px; }
+.profile-crop-control {
+  flex: none; width: 38px; height: 38px; display: grid; place-items: center;
+  border: 1px solid rgba(184,164,255,.24); border-radius: 11px;
+  background: linear-gradient(145deg, rgba(48,39,103,.82), rgba(11,14,43,.94));
+  color: #f5f0ff; font-size: 21px; font-weight: 650;
+}
+.profile-crop-slider { flex: 1; min-width: 0; accent-color: #a77aff; touch-action: pan-x; }
+.profile-crop-reset { flex: none; min-height: 36px; padding: 0 10px; border: 1px solid rgba(184,164,255,.2); border-radius: 10px; background: rgba(255,255,255,.05); color: #ded6ff; font-size: 12px; font-weight: 650; }
+.profile-crop-actions { width: min(100%, 440px); display: flex; gap: 8px; padding-bottom: 2px; }
+.profile-crop-actions .pill-btn { flex: 1; min-height: 44px; padding: 9px 12px; border: 1px solid rgba(184,164,255,.22); background: rgba(255,255,255,.06); }
+.profile-crop-actions .profile-crop-apply { border-color: transparent; background: linear-gradient(135deg, var(--nebula), var(--electric)); }
+.profile-crop-actions button:disabled { opacity: .58; cursor: wait; }
+.profile-crop-sheet .sheet-title { padding-top: 2px; }
+@media (max-width: 380px) {
+  .profile-crop-sheet { padding-left: 12px; padding-right: 12px; }
+  .profile-crop-zoom { gap: 5px; }
+  .profile-crop-control { width: 34px; height: 34px; }
+}
 .profile-toolbar {
   position: absolute !important; z-index: 3 !important; inset: 8px 12px auto;
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
