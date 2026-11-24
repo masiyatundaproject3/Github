@@ -171,7 +171,39 @@ export const actions = {
       throw writeError(error);
     });
   },
-  follow(authorId, on) {
+  async follow(authorId, on) {
+    if (on) {
+      const cached = profiles.peek(authorId);
+      let isPrivate = cached?.private;
+      if (isPrivate == null) {
+        const sb = await supabase();
+        const { data, error } = await sb.from('mw_profiles').select('is_private').eq('id', authorId).maybeSingle();
+        if (error) throw error;
+        isPrivate = Boolean(data?.is_private);
+      }
+      if (isPrivate) {
+        profiles.setRequested(authorId, true);
+        try {
+          await rest('mw_follow_requests?on_conflict=requester_id,target_id', {
+            method: 'POST', prefer: 'resolution=ignore-duplicates,return=minimal',
+            body: { requester_id: auth.userId, target_id: authorId },
+          });
+          return 'requested';
+        } catch (error) {
+          profiles.setRequested(authorId, false);
+          throw friendly(error, 'followFailed');
+        }
+      }
+    } else if (profiles.isRequested(authorId)) {
+      profiles.setRequested(authorId, false);
+      try {
+        await rest(`mw_follow_requests?requester_id=eq.${auth.userId}&target_id=eq.${authorId}`, { method: 'DELETE' });
+        return 'cancelled';
+      } catch (error) {
+        profiles.setRequested(authorId, true);
+        throw friendly(error, 'followFailed');
+      }
+    }
     profiles.setFollowing(authorId, on);
     return perform('follow', { target: authorId, user: auth.userId, on }).catch(error => { profiles.setFollowing(authorId, !on); throw friendly(error, 'followFailed'); });
   },

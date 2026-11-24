@@ -384,7 +384,7 @@ export class FeedView {
   }
 
   #paintSuggest(slide) {
-    const people = this.promo.people.filter(person => !profiles.isFollowing(person.id)).slice(0, 6);
+    const people = this.promo.people.filter(person => !profiles.isFollowing(person.id) && !profiles.isRequested(person.id)).slice(0, 6);
     const title = t('suggestedForYou') === 'suggestedForYou' ? 'Suggested for you' : t('suggestedForYou');
     slide._refs.suggest.replaceChildren(h('b', { class: 'suggest-title' }, title),
       people.length ? h('div', { class: 'suggest-grid' }, ...people.map(person => h('div', { class: 'suggest-person' },
@@ -419,7 +419,7 @@ export class FeedView {
     if (!post) return;
     if (post.kind) { slide._refs.follow.hidden = true; return; }
     const own = post.author.id === auth.userId;
-    slide._refs.follow.hidden = own || profiles.isFollowing(post.author.id);
+    slide._refs.follow.hidden = own || profiles.isFollowing(post.author.id) || profiles.isRequested(post.author.id);
   }
 
   #release(slide) {

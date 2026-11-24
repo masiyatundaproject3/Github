@@ -34,7 +34,11 @@ const giftTray = lazy(() => import('./ui/gift-tray.js').then(m => new m.GiftTray
   onTopUp: () => novaMenu().then(menu => menu.openWallet()),
 })));
 const inboxView = lazy(() => import('./ui/inbox-view.js').then(m => new m.InboxView()));
-const followersView = lazy(() => import('./ui/followers-view.js').then(m => new m.FollowersView({ openProfile })));
+const followersView = lazy(() => import('./ui/followers-view.js').then(m => new m.FollowersView({
+  openProfile,
+  openLive: room => showLive(room),
+  requireLogin,
+})));
 const walkieTalkieView = lazy(() => import('./ui/walkie-talkie.js').then(m => new m.WalkieTalkieView()));
 const callView = lazy(() => import('./ui/call-view.js').then(m => m.calls));
 const novaMenu = lazy(() => import('./ui/settings-view.js').then(m => new m.NovaMenu({
@@ -51,7 +55,7 @@ const profileView = lazy(() => import('./ui/profile-view.js').then(m => new m.Pr
   requireLogin, openCreate, openComments: post => commentsSheet().then(sheet => sheet.open(post)),
   openMenu: profile => novaMenu().then(menu => menu.open(profile)),
   openChat: person => { if (requireLogin()) inboxView().then(view => view.openWith(person)); },
-  openFollowers: person => followersView().then(view => view.open(person)),
+  openFollowers: (person, options) => followersView().then(view => view.open(person, options)),
 })));
 const profileSearch = lazy(() => import('./ui/profile-search.js').then(m => new m.ProfileSearch({ openProfile })));
 const composeSheet = lazy(() => import('./ui/compose-sheet.js').then(m => new m.ComposeSheet()));
@@ -92,7 +96,7 @@ function openCreate() {
 const feedView = new FeedView($('feedView'), {
   requireLogin,
   openProfile,
-  openFollowers: person => followersView().then(view => view.open(person)),
+  openFollowers: (person, options) => followersView().then(view => view.open(person, options)),
   openComments: post => commentsSheet().then(sheet => sheet.open(post)),
   openGifts: target => giftTray().then(tray => tray.open(target)),
   openPost,

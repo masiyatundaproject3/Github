@@ -292,11 +292,13 @@ export class ProfileView {
     try {
       const sb = await supabase();
       const head = { count: 'exact', head: true };
-      const [profile, followers, following, posts] = await Promise.all([
+      const [profile, followers, following, posts, followingRows, followerRows] = await Promise.all([
         quiet(sb.from('mw_profiles').select('*').eq('id', id).maybeSingle()),
         quiet(sb.from('mw_follows').select('follower_id', head).eq('following_id', id)),
         quiet(sb.from('mw_follows').select('following_id', head).eq('follower_id', id)),
         quiet(loadProfilePosts(sb, id)),
+        quiet(sb.from('mw_follows').select('following_id').eq('follower_id', id).limit(2000)),
+        quiet(sb.from('mw_follows').select('follower_id').eq('following_id', id).limit(2000)),
       ]);
       if (token !== this.token) return;
       const row = profile.data || {};
@@ -312,15 +314,18 @@ export class ProfileView {
         interests: row.interests || [],
         private: Boolean(row.is_private),
       };
-      profiles.prime([{ id, name: person.name, username: person.username, avatar: person.avatar }]);
+      profiles.prime([{ id, name: person.name, username: person.username, avatar: person.avatar, private: person.private }]);
       if (!this.own) this.sheet.title = profileText(person.name) || t('profile');
       const { data: pin } = await quiet(sb.from('mw_creator_pins').select('post_id').eq('creator_id', id).maybeSingle());
       const profilePosts = Array.isArray(posts.data) ? posts.data : [];
       if (pin?.post_id) profilePosts.sort((a, b) => Number(b.id === pin.post_id) - Number(a.id === pin.post_id));
+      const followingIds = new Set((followingRows.data || []).map(item => String(item.following_id)));
+      const friends = (followerRows.data || []).reduce((total, item) => total + Number(followingIds.has(String(item.follower_id))), 0);
       const renderData = {
         profile: person,
         followers: followers.count || 0,
         following: following.count || 0,
+        friends,
         posts: profilePosts,
         postsError: profileText(posts.error?.message),
       };
@@ -397,14 +402,15 @@ export class ProfileView {
     return card;
   }
 
-  #render({ profile, followers = 0, following = 0, posts = [], loading = false, error = false, postsError = '' }) {
+  #render({ profile, followers = 0, following = 0, friends = 0, posts = [], loading = false, error = false, postsError = '' }) {
     profile = profile && typeof profile === 'object' ? profile : { id: this.id || auth.userId || '' };
     this.profilePrivate = Boolean(profile.private);
     this.posts = Array.isArray(posts) ? posts.filter(post => post && typeof post === 'object') : [];
     this.postCount = h('b', {}, count(this.posts.length));
     const stats = h('div', { class: 'profile-stats' },
-      h('span', {}, h('b', {}, count(following)), t('followingCount')),
-      h('span', {}, h('b', {}, count(followers)), t('followers')),
+      h('button', { type: 'button', onclick: () => this.hooks.openFollowers?.(profile, { tab: 'following' }) }, h('b', {}, count(following)), t('followingCount')),
+      h('button', { type: 'button', onclick: () => this.hooks.openFollowers?.(profile, { tab: 'followers' }) }, h('b', {}, count(followers)), t('followers')),
+      h('button', { type: 'button', onclick: () => this.hooks.openFollowers?.(profile, { tab: 'friends' }) }, h('b', {}, count(friends)), t('friends')),
       h('span', {}, this.postCount, t('posts')));
     const actionsRow = h('div', { class: 'profile-actions' });
     if (this.own) {
@@ -420,10 +426,16 @@ export class ProfileView {
       }
     } else if (auth.signedIn()) {
       const button = h('button', { class: 'pill-btn hot', type: 'button' });
-      const paint = () => { const on = profiles.isFollowing(profile.id); button.textContent = on ? t('following') : t('follow'); button.classList.toggle('hot', !on); button.setAttribute('aria-pressed', String(on)); };
+      const paint = () => {
+        const on = profiles.isFollowing(profile.id);
+        const requested = profiles.isRequested(profile.id);
+        button.textContent = on ? t('following') : requested ? t('requested') : t('follow');
+        button.classList.toggle('hot', !on && !requested);
+        button.setAttribute('aria-pressed', String(on || requested));
+      };
       button.onclick = () => {
-        const on = !profiles.isFollowing(profile.id);
-        actions.follow(profile.id, on).catch(() => toast(t('queued')));
+        const on = !profiles.isFollowing(profile.id) && !profiles.isRequested(profile.id);
+        actions.follow(profile.id, on).then(paint).catch(() => toast(t('queued')));
         paint();
       };
       paint();

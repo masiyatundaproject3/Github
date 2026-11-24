@@ -7,9 +7,14 @@ import { bus } from '../core/events.js';
 
 const memory = new Map();
 const following = new Set();
+const requested = new Set();
 let followLoaded = false;
 
-const normalize = row => row && ({ id: String(row.id), name: row.name || row.display_name || 'MilkyWay', username: row.username || '', avatar: row.avatar || row.avatar_url || '' });
+const normalize = row => row && ({
+  id: String(row.id), name: row.name || row.display_name || 'MilkyWay',
+  username: row.username || '', avatar: row.avatar || row.avatar_url || '',
+  private: row.private == null && row.is_private == null ? null : Boolean(row.private ?? row.is_private),
+});
 
 export const profiles = {
   /** Seed from data that already arrived with a feed page / Live list (no extra request). */
@@ -19,7 +24,8 @@ export const profiles = {
       if (!profile?.id) continue;
       const before = memory.get(profile.id);
       memory.set(profile.id, profile);
-      if (!before || before.avatar !== profile.avatar || before.name !== profile.name || before.username !== profile.username) store.set(`profile:${profile.id}`, profile);
+      if (!before || before.avatar !== profile.avatar || before.name !== profile.name
+        || before.username !== profile.username || before.private !== profile.private) store.set(`profile:${profile.id}`, profile);
     }
   },
   update(item) {
@@ -48,6 +54,11 @@ export const profiles = {
     return new Map(wanted.map(id => [id, memory.get(id) || null]));
   },
   isFollowing: id => following.has(String(id)),
+  isRequested: id => requested.has(String(id)),
+  setRequested(id, on) {
+    on ? requested.add(String(id)) : requested.delete(String(id));
+    bus.emit('follow', { id: String(id), on: following.has(String(id)), requested: on });
+  },
   setFollowing(id, on) {
     on ? following.add(String(id)) : following.delete(String(id));
     store.set(scoped('following'), [...following]);
@@ -69,4 +80,4 @@ export const profiles = {
     return following;
   },
 };
-bus.on('auth', () => { following.clear(); followLoaded = false; profiles.loadFollowing(); });
+bus.on('auth', () => { following.clear(); requested.clear(); followLoaded = false; profiles.loadFollowing(); });
