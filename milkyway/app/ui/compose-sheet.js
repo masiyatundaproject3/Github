@@ -87,6 +87,14 @@ export class ComposeSheet {
     this.captureMode = 'photo';
     this.captureDuration = 15_000;
     this.cameraFilter = 0;
+    this.cameraOrientation = 'auto';
+    this.cameraZoom = 1;
+    this.hardwareZoom = 1;
+    this.hardwareZoomSupported = false;
+    this.zoomRequest = 0;
+    this.captureCanvas = null;
+    this.captureCanvasStream = null;
+    this.captureFrame = 0;
     this.cameraRequest = 0;
     this.cameraStarting = false;
     this.captureTimer = 0;
@@ -125,6 +133,11 @@ export class ComposeSheet {
     const flashButton = tool('flash', 'ϟ', t('flash'), () => { void this.#toggleFlash(flashButton); });
     const effectsButton = tool('effects', '✧', t('effects'), () => this.#cycleCameraFilter(effectsButton));
     const timerButton = tool('timer', '◷', t('timer'), () => this.#toggleCaptureTimer(timerButton));
+    const settingsButton = tool('settings', '⚙', t('cameraSettings'), () => {
+      this.cameraSettingsPanel.hidden = !this.cameraSettingsPanel.hidden;
+      settingsButton.classList.toggle('is-active', !this.cameraSettingsPanel.hidden);
+      settingsButton.setAttribute('aria-expanded', String(!this.cameraSettingsPanel.hidden));
+    });
     const moreButton = tool('more', '···', t('moreOptions'), () => {
       this.#showReview();
       this.creatorDetails.hidden = false;
@@ -161,6 +174,47 @@ export class ComposeSheet {
         this.modeButtons.push(button);
         return button;
       }));
+    this.orientationButtons = [];
+    const orientationModes = [
+      ['auto', t('cameraAuto')],
+      ['portrait', t('cameraPortrait')],
+      ['landscape', t('cameraLandscape')],
+    ];
+    const orientationGroup = h('div', { class: 'creator-settings-options', role: 'group', 'aria-label': t('cameraOrientation') },
+      ...orientationModes.map(([value, label]) => {
+        const button = h('button', {
+          class: 'creator-settings-option', type: 'button', 'aria-pressed': String(value === this.cameraOrientation),
+          onclick: () => { void this.#setCameraOrientation(value); },
+        }, label);
+        this.orientationButtons.push(button);
+        return button;
+      }));
+    this.zoomSlider = h('input', {
+      class: 'creator-zoom-slider', id: 'creatorZoom', type: 'range', min: '1', max: '3', step: '0.05', value: String(this.cameraZoom),
+      'aria-label': t('cameraZoom'), oninput: () => { void this.#setCameraZoom(Number(this.zoomSlider.value)); },
+    });
+    const zoomOutButton = h('button', {
+      class: 'creator-zoom-step', type: 'button', 'aria-label': t('zoomOut'),
+      onclick: () => { void this.#setCameraZoom(this.cameraZoom - 0.1); },
+    }, '−');
+    const zoomInButton = h('button', {
+      class: 'creator-zoom-step', type: 'button', 'aria-label': t('zoomIn'),
+      onclick: () => { void this.#setCameraZoom(this.cameraZoom + 0.1); },
+    }, '+');
+    this.zoomValue = h('output', { class: 'creator-zoom-value', htmlFor: 'creatorZoom' }, '1.0×');
+    this.cameraSettingsPanel = h('section', { class: 'creator-settings-panel', hidden: true },
+      h('header', { class: 'creator-settings-head' }, h('strong', {}, t('cameraSettings')),
+        h('button', { class: 'creator-settings-close', type: 'button', 'aria-label': t('close'), onclick: () => {
+          this.cameraSettingsPanel.hidden = true;
+          settingsButton.classList.remove('is-active');
+          settingsButton.setAttribute('aria-expanded', 'false');
+        } }, '×')),
+      h('label', { class: 'creator-settings-label' }, t('cameraOrientation')),
+      orientationGroup,
+      h('label', { class: 'creator-settings-label', for: 'creatorZoom' }, t('cameraZoom')),
+      h('div', { class: 'creator-zoom-controls' }, zoomOutButton, this.zoomSlider, zoomInButton),
+      this.zoomValue,
+      h('small', { class: 'creator-settings-hint' }, t('cameraAutoHint')));
     const createTool = (label, symbol, handler) => h('button', {
       class: 'creator-hub-tool', type: 'button', onclick: handler,
     }, h('span', { 'aria-hidden': 'true' }, symbol), h('b', {}, label));
@@ -245,7 +299,7 @@ export class ComposeSheet {
     this.detailsToggle = detailsToggle;
     const reviewBack = h('button', {
       class: 'creator-review-back', type: 'button', onclick: () => this.#discardCapture(),
-    }, `‹ ${t('studioDiscardRetake')}`);
+    }, t('studioRetake'));
     this.reviewBackButton = reviewBack;
     const cameraViewButton = h('button', {
       class: 'creator-view-mode is-selected', type: 'button', 'aria-pressed': 'true',
@@ -277,7 +331,7 @@ export class ComposeSheet {
       },
     }, t('create'));
     this.viewModeButtons = { camera: cameraViewButton, create: createViewButton };
-    this.cameraToolButtons = { flashButton, effectsButton, timerButton, moreButton };
+    this.cameraToolButtons = { flashButton, effectsButton, timerButton, settingsButton, moreButton };
     this.scheduleToggle.id = 'composeScheduleToggle';
     const scheduleLabel = h('label', { class: 'compose-schedule-toggle', for: this.scheduleToggle.id },
       h('span', { class: 'compose-schedule-copy' },
@@ -285,7 +339,7 @@ export class ComposeSheet {
         h('small', { class: 'muted' }, t('studioScheduleHint'))),
       this.scheduleToggle);
     this.reviewPanel.append(
-      h('header', { class: 'creator-review-head' }, reviewBack, h('strong', {}, t('studioReview'))),
+      h('header', { class: 'creator-review-head' }, reviewBack, h('strong', {}, t('studioReviewPost'))),
       this.captionWrap,
       this.audioBar,
       detailsToggle,
@@ -300,7 +354,8 @@ export class ComposeSheet {
     this.mediaInput, this.audioInput,
     h('div', { class: 'creator-stage-wrap' },
       this.stage, this.textStage, this.stageMessage,
-      h('aside', { class: 'creator-tool-rail', 'aria-label': t('camera') }, flipButton, flashButton, effectsButton, timerButton, moreButton)),
+      this.cameraSettingsPanel,
+      h('aside', { class: 'creator-tool-rail', 'aria-label': t('camera') }, flipButton, flashButton, effectsButton, timerButton, settingsButton, moreButton)),
     this.createHub,
     modeRow,
     h('div', { class: 'creator-capture-row' }, galleryButton, this.shutter, effectsShortcut),
@@ -328,6 +383,12 @@ export class ComposeSheet {
     this.reviewPanel.hidden = true;
     this.form.dataset.view = 'camera';
     this.form.dataset.mode = 'camera';
+    this.stage.dataset.orientation = this.cameraOrientation;
+    this.cameraSettingsPanel.hidden = true;
+    this.cameraToolButtons.settingsButton.classList.remove('is-active');
+    this.cameraToolButtons.settingsButton.setAttribute('aria-expanded', 'false');
+    this.zoomSlider.value = String(this.cameraZoom);
+    this.#paintCameraZoom();
     this.autoStyleNextSelection = false;
     this.createHub.hidden = true;
     this.audioBar.hidden = !this.audioFile;
@@ -352,7 +413,7 @@ export class ComposeSheet {
 
   #showReview() {
     if (this.form.dataset.view !== 'review') this.reviewReturnMode = this.form.dataset.mode || 'camera';
-    this.reviewBackButton.textContent = `‹ ${t(this.files.length ? 'studioDiscardRetake' : 'studioBackToStudio')}`;
+    this.reviewBackButton.textContent = this.files.length ? `‹ ${t('studioRetake')}` : `‹ ${t('studioReviewBack')}`;
     if (this.captureMode === 'text') this.reviewPanel.insertBefore(this.captionWrap, this.audioBar);
     this.form.dataset.view = 'review';
     this.reviewPanel.hidden = false;
@@ -383,9 +444,12 @@ export class ComposeSheet {
     this.cameraStarting = true;
     const request = ++this.cameraRequest;
     try {
+      const video = { facingMode: this.cameraFacing };
+      if (this.cameraOrientation === 'portrait') video.aspectRatio = { ideal: 9 / 16 };
+      else if (this.cameraOrientation === 'landscape') video.aspectRatio = { ideal: 16 / 9 };
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
-        video: { facingMode: this.cameraFacing, width: { ideal: 1080 }, height: { ideal: 1920 } },
+        video,
       });
       if (request !== this.cameraRequest || !this.sheet.isOpen) {
         stream.getTracks().forEach(track => track.stop());
@@ -395,6 +459,7 @@ export class ComposeSheet {
       this.cameraVideo.classList.toggle('is-selfie', this.cameraFacing === 'user');
       this.cameraVideo.srcObject = this.cameraStream;
       await this.cameraVideo.play();
+      await this.#applyHardwareZoom();
       this.stageMessage.textContent = '';
     } catch (error) {
       if (request === this.cameraRequest) {
@@ -403,6 +468,125 @@ export class ComposeSheet {
     } finally {
       if (request === this.cameraRequest) this.cameraStarting = false;
     }
+  }
+
+  async #setCameraOrientation(orientation) {
+    if (!['auto', 'portrait', 'landscape'].includes(orientation)) return;
+    this.cameraOrientation = orientation;
+    this.stage.dataset.orientation = orientation;
+    this.orientationButtons.forEach((button, index) => {
+      const selected = ['auto', 'portrait', 'landscape'][index] === orientation;
+      button.setAttribute('aria-pressed', String(selected));
+    });
+    if (!this.cameraStream) {
+      if (this.cameraStarting) {
+        this.cameraRequest++;
+        this.cameraStarting = false;
+        void this.#startCamera();
+      }
+      return;
+    }
+    this.#stopCamera();
+    await this.#startCamera();
+  }
+
+  async #setCameraZoom(zoom) {
+    this.cameraZoom = Math.min(3, Math.max(1, Number.isFinite(zoom) ? zoom : 1));
+    this.zoomSlider.value = String(this.cameraZoom);
+    this.zoomValue.value = `${this.cameraZoom.toFixed(1)}×`;
+    this.zoomValue.textContent = this.zoomValue.value;
+    await this.#applyHardwareZoom();
+  }
+
+  async #applyHardwareZoom() {
+    const request = ++this.zoomRequest;
+    const track = this.cameraStream?.getVideoTracks()[0];
+    let zoom;
+    try {
+      zoom = track?.getCapabilities?.().zoom;
+    } catch {
+      this.hardwareZoomSupported = false;
+      this.hardwareZoom = 1;
+      this.#paintCameraZoom();
+      return;
+    }
+    this.hardwareZoomSupported = Boolean(zoom && Number.isFinite(zoom.min) && Number.isFinite(zoom.max));
+    if (!this.hardwareZoomSupported) {
+      this.hardwareZoom = 1;
+      this.#paintCameraZoom();
+      return;
+    }
+    const target = Math.min(zoom.max, Math.max(zoom.min, this.cameraZoom));
+    try {
+      await track.applyConstraints({ advanced: [{ zoom: target }] });
+      if (request !== this.zoomRequest) return;
+      this.hardwareZoom = target;
+    } catch {
+      if (request !== this.zoomRequest) return;
+      this.hardwareZoomSupported = false;
+      this.hardwareZoom = 1;
+    }
+    this.#paintCameraZoom();
+  }
+
+  #paintCameraZoom() {
+    const digitalZoom = this.cameraZoom / (this.hardwareZoom || 1);
+    this.cameraVideo.style.setProperty('--creator-camera-zoom', String(Math.max(1, digitalZoom)));
+  }
+
+  #cameraFrameGeometry() {
+    const sourceWidth = this.cameraVideo.videoWidth;
+    const sourceHeight = this.cameraVideo.videoHeight;
+    const frame = this.stage.getBoundingClientRect();
+    if (!sourceWidth || !sourceHeight || !frame.width || !frame.height) return null;
+    const frameAspect = frame.width / frame.height;
+    let cropWidth = sourceWidth;
+    let cropHeight = sourceHeight;
+    if (sourceWidth / sourceHeight > frameAspect) cropWidth = sourceHeight * frameAspect;
+    else cropHeight = sourceWidth / frameAspect;
+    const softwareZoom = this.cameraZoom / (this.hardwareZoom || 1);
+    cropWidth /= softwareZoom;
+    cropHeight /= softwareZoom;
+    return {
+      x: (sourceWidth - cropWidth) / 2,
+      y: (sourceHeight - cropHeight) / 2,
+      width: cropWidth,
+      height: cropHeight,
+    };
+  }
+
+  #drawCameraFrame(context, canvas) {
+    const crop = this.#cameraFrameGeometry();
+    if (!crop) return false;
+    context.save();
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const filters = ['', 'contrast(1.12) saturate(1.16)', 'sepia(.22) saturate(1.22)', 'grayscale(.45) contrast(1.08)'];
+    context.filter = filters[this.cameraFilter];
+    if (this.cameraFacing === 'user') {
+      context.translate(canvas.width, 0);
+      context.scale(-1, 1);
+    }
+    context.drawImage(this.cameraVideo, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height);
+    context.restore();
+    return true;
+  }
+
+  #createCaptureCanvas(maxDimension = 1920) {
+    const crop = this.#cameraFrameGeometry();
+    if (!crop) return null;
+    const scale = Math.min(1, maxDimension / Math.max(crop.width, crop.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(crop.width * scale));
+    canvas.height = Math.max(1, Math.round(crop.height * scale));
+    return canvas;
+  }
+
+  #clearCaptureCanvas() {
+    if (this.captureFrame) cancelAnimationFrame(this.captureFrame);
+    this.captureFrame = 0;
+    this.captureCanvasStream?.getVideoTracks().forEach(track => track.stop());
+    this.captureCanvasStream = null;
+    this.captureCanvas = null;
   }
 
   #stopCamera() {
@@ -417,6 +601,7 @@ export class ComposeSheet {
     }
     this.captureRecorder = null;
     this.captureChunks = [];
+    this.#clearCaptureCanvas();
     this.cameraStream?.getTracks().forEach(track => track.stop());
     this.cameraStream = null;
     this.cameraVideo.srcObject = null;
@@ -500,21 +685,11 @@ export class ComposeSheet {
       await new Promise(resolve => { this.captureTimer = setTimeout(resolve, 3000); });
       this.captureTimer = 0;
     }
-    const width = this.cameraVideo.videoWidth;
-    const height = this.cameraVideo.videoHeight;
-    if (!width || !height) {
-      this.stageMessage.textContent = t('cameraAccessFailed');
-      return;
-    }
-    const canvas = document.createElement('canvas');
-    const scale = Math.min(1, 2048 / Math.max(width, height));
-    canvas.width = Math.round(width * scale);
-    canvas.height = Math.round(height * scale);
+    const canvas = this.#createCaptureCanvas(2048);
+    if (!canvas) { this.stageMessage.textContent = t('cameraAccessFailed'); return; }
     const context = canvas.getContext('2d');
     if (!context) { this.stageMessage.textContent = t('photoCropFailed'); return; }
-    const filters = ['', 'contrast(1.12) saturate(1.16)', 'sepia(.22) saturate(1.22)', 'grayscale(.45) contrast(1.08)'];
-    context.filter = filters[this.cameraFilter];
-    context.drawImage(this.cameraVideo, 0, 0, canvas.width, canvas.height);
+    if (!this.#drawCameraFrame(context, canvas)) { this.stageMessage.textContent = t('photoCropFailed'); return; }
     const request = this.cameraRequest;
     canvas.toBlob(blob => {
       if (!this.sheet.isOpen || request !== this.cameraRequest) return;
@@ -533,12 +708,31 @@ export class ComposeSheet {
     try {
       const formats = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
       const mimeType = formats.find(type => MediaRecorder.isTypeSupported?.(type)) || '';
-      const recorder = new MediaRecorder(this.cameraStream, mimeType ? { mimeType } : undefined);
+      let recordingStream = this.cameraStream;
+      const canvas = this.#createCaptureCanvas(1280);
+      if (canvas?.captureStream) {
+        const context = canvas.getContext('2d');
+        if (context) {
+          this.#clearCaptureCanvas();
+          this.captureCanvas = canvas;
+          this.captureCanvasStream = canvas.captureStream(30);
+          this.cameraStream.getAudioTracks().forEach(track => this.captureCanvasStream.addTrack(track));
+          recordingStream = this.captureCanvasStream;
+          const draw = () => {
+            if (!this.captureCanvas || this.captureRecorder?.state !== 'recording') return;
+            this.#drawCameraFrame(context, canvas);
+            this.captureFrame = requestAnimationFrame(draw);
+          };
+          this.captureFrame = requestAnimationFrame(draw);
+        }
+      }
+      const recorder = new MediaRecorder(recordingStream, mimeType ? { mimeType } : undefined);
       this.captureRecorder = recorder;
       this.captureChunks = [];
       recorder.ondataavailable = event => { if (event.data?.size) this.captureChunks.push(event.data); };
       recorder.onerror = event => {
         this.stageMessage.textContent = String(event.error?.message || t('recordingFailed')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('recordingFailed');
+        this.#clearCaptureCanvas();
         clearTimeout(this.captureTimer);
         this.captureTimer = 0;
         this.shutter.classList.remove('is-recording');
@@ -547,6 +741,7 @@ export class ComposeSheet {
       recorder.onstop = () => {
         this.shutter.classList.remove('is-recording');
         this.captureRecorder = null;
+        this.#clearCaptureCanvas();
         clearTimeout(this.captureTimer);
         this.captureTimer = 0;
         const blob = new Blob(this.captureChunks, { type: recorder.mimeType || 'video/webm' });
