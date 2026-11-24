@@ -29,7 +29,7 @@ async function mapConcurrent(items, limit, run) {
 }
 
 function publishError(error, phase) {
-  const message = String(error?.message || error || '');
+  const message = String(error?.message || error || '').replace(/\b(?:null|undefined)\b/gi, '').replace(/\s+/g, ' ').trim();
   const code = String(error?.code || '');
   if (/failed to fetch|networkerror|load failed|network request failed|timeout|timed out/i.test(message)) {
     return `${t('postNetworkFailed')} (${phase}): ${message || t('retry')}`;
@@ -49,7 +49,11 @@ function publishError(error, phase) {
 export class ComposeSheet {
   constructor({ onPublished } = {}) {
     this.onPublished = onPublished;
-    this.sheet = new Sheet({ title: t('newPost'), className: 'compose-sheet', onClose: () => { this.#releaseMedia(); this.#pickAudio(null); } });
+    this.sheet = new Sheet({ title: t('newPost'), className: 'compose-sheet creator-studio-sheet', onClose: () => {
+      this.#stopCamera();
+      this.#releaseMedia();
+      this.#pickAudio(null);
+    } });
     this.files = [];
     this.mediaSelection = 0;
     this.audioSelection = 0;
@@ -72,20 +76,114 @@ export class ComposeSheet {
       h('option', { value: 'slide' }, t('styleSlide')));
     this.assist = h('button', { class: 'pill-btn', type: 'button', onclick: () => this.#autoStyle() }, t('autoStyle'));
     this.audioPreview = h('div', { class: 'compose-audio-preview' });
+    this.audioBar = h('div', { class: 'creator-audio-bar', hidden: true }, this.audioPreview);
+    this.cameraStream = null;
+    this.cameraFacing = 'user';
+    this.captureMode = 'photo';
+    this.captureDuration = 15_000;
+    this.cameraFilter = 0;
+    this.cameraRequest = 0;
+    this.cameraStarting = false;
+    this.captureTimer = 0;
+    this.captureRecorder = null;
+    this.captureChunks = [];
+    this.cameraVideo = h('video', { class: 'creator-camera-video', autoplay: true, muted: true, playsinline: true, 'aria-label': t('camera') });
+    this.stage = h('div', { class: 'creator-stage', 'data-mode': 'photo' }, this.cameraVideo, this.preview);
+    this.stageMessage = h('span', { class: 'creator-stage-message', role: 'status', 'aria-live': 'polite' });
+    this.textStage = h('div', { class: 'creator-text-stage', hidden: true });
+    this.captionWrap = h('label', { class: 'creator-caption-wrap' },
+      h('span', { class: 'creator-caption-label' }, t('captionLabel')),
+      this.caption, this.captionCount);
+    this.creatorDetails = h('div', { class: 'creator-details', hidden: true });
+    this.modeButtons = [];
     this.scheduleToggle = h('input', { type: 'checkbox', class: 'lc-switch', role: 'switch', onchange: () => this.#paintSchedule() });
     this.scheduleDate = h('input', { class: 'field compose-schedule-date', type: 'datetime-local', disabled: true, 'aria-label': t('studioScheduleTime') });
     this.scheduleDateWrap = h('div', { class: 'compose-schedule-date-wrap', 'aria-hidden': 'true' },
       h('div', { class: 'compose-schedule-date-inner' }, this.scheduleDate));
     this.message = h('p', { class: 'muted', role: 'status' });
     this.submit = h('button', { class: 'pill-btn hot wide compose-submit', type: 'submit' }, t('publish'));
-    const mediaButton = h('button', {
-      class: 'pill-btn wide compose-media-button', type: 'button',
-      onclick: () => this.#openPicker(this.mediaInput),
-    }, h('span', { class: 'compose-action-icon', 'aria-hidden': 'true' }, '＋'), t('choosePhotosOrVideo'));
-    const audioButton = h('button', {
-      class: 'pill-btn wide compose-media-button', type: 'button',
+    const soundButton = h('button', {
+      class: 'creator-sound-button', type: 'button',
       onclick: () => this.#openPicker(this.audioInput),
-    }, h('span', { class: 'compose-action-icon compose-audio-icon', 'aria-hidden': 'true' }, '♫'), t('attachAudio'));
+    }, h('span', { 'aria-hidden': 'true' }, '♫'), t('attachAudio'));
+    const closeButton = h('button', {
+      class: 'creator-close', type: 'button', 'aria-label': t('cancel'), title: t('cancel'),
+      onclick: () => this.sheet.close(),
+    }, '×');
+    const tool = (action, symbol, label, handler) => h('button', {
+      class: 'creator-tool', type: 'button', 'data-tool': action, 'aria-label': label, title: label, onclick: handler,
+    }, h('span', { 'aria-hidden': 'true' }, symbol), h('small', {}, label));
+    const flipButton = tool('flip', '↻', t('flipCamera'), () => { void this.#flipCamera(); });
+    const flashButton = tool('flash', 'ϟ', t('flash'), () => { void this.#toggleFlash(flashButton); });
+    const effectsButton = tool('effects', '✧', t('effects'), () => this.#cycleCameraFilter(effectsButton));
+    const timerButton = tool('timer', '◷', t('timer'), () => this.#toggleCaptureTimer(timerButton));
+    const moreButton = tool('more', '···', t('moreOptions'), () => {
+      moreButton.classList.toggle('is-active');
+      this.stage.classList.toggle('creator-more-active', moreButton.classList.contains('is-active'));
+    });
+    const galleryButton = h('button', {
+      class: 'creator-gallery', type: 'button', 'aria-label': t('choosePhotosOrVideo'), title: t('choosePhotosOrVideo'),
+      onclick: () => this.#openPicker(this.mediaInput),
+    }, '▧');
+    this.shutter = h('button', {
+      class: 'creator-shutter', type: 'button', 'aria-label': t('camera'), title: t('camera'),
+      onclick: () => { void this.#capture(); },
+    }, h('span', { 'aria-hidden': 'true' }));
+    const effectsShortcut = h('button', {
+      class: 'creator-effects-shortcut', type: 'button', 'aria-label': t('effects'), title: t('effects'),
+      onclick: () => this.#cycleCameraFilter(effectsButton),
+    }, '✧');
+    const captureModes = [
+      ['10m', 'video', 600_000],
+      ['60s', 'video', 60_000],
+      ['15s', 'video', 15_000],
+      [t('photo'), 'photo', 0],
+      [t('textMode'), 'text', 0],
+    ];
+    const modeRow = h('div', { class: 'creator-mode-row', role: 'group', 'aria-label': t('camera') },
+      ...captureModes.map(([label, mode, duration], index) => {
+        const button = h('button', {
+          class: 'creator-mode', type: 'button', 'aria-pressed': String(mode === 'photo' && index === 3),
+          onclick: () => {
+            this.captureDuration = duration;
+            this.#setCaptureMode(mode, button);
+          },
+        }, label);
+        this.modeButtons.push(button);
+        return button;
+      }));
+    const detailsToggle = h('button', {
+      class: 'creator-details-toggle', type: 'button', 'aria-expanded': 'false',
+      onclick: () => {
+        this.creatorDetails.hidden = !this.creatorDetails.hidden;
+        detailsToggle.setAttribute('aria-expanded', String(!this.creatorDetails.hidden));
+      },
+    }, t('moreOptions'));
+    const cameraViewButton = h('button', {
+      class: 'creator-view-mode is-selected', type: 'button', 'aria-pressed': 'true',
+      onclick: () => {
+        cameraViewButton.classList.add('is-selected');
+        cameraViewButton.setAttribute('aria-pressed', 'true');
+        createViewButton.classList.remove('is-selected');
+        createViewButton.setAttribute('aria-pressed', 'false');
+        this.captureDuration = 0;
+        this.#setCaptureMode('photo');
+      },
+    }, t('camera'));
+    const createViewButton = h('button', {
+      class: 'creator-view-mode', type: 'button', 'aria-pressed': 'false',
+      onclick: () => {
+        createViewButton.classList.add('is-selected');
+        createViewButton.setAttribute('aria-pressed', 'true');
+        cameraViewButton.classList.remove('is-selected');
+        cameraViewButton.setAttribute('aria-pressed', 'false');
+        this.#setCaptureMode('text');
+        this.creatorDetails.hidden = false;
+        this.caption.focus({ preventScroll: true });
+      },
+    }, t('create'));
+    this.viewModeButtons = { camera: cameraViewButton, create: createViewButton };
+    this.cameraToolButtons = { flashButton, effectsButton, timerButton, moreButton };
     this.scheduleToggle.id = 'composeScheduleToggle';
     const scheduleLabel = h('label', { class: 'compose-schedule-toggle', for: this.scheduleToggle.id },
       h('span', { class: 'compose-schedule-copy' },
@@ -93,23 +191,25 @@ export class ComposeSheet {
         h('small', { class: 'muted' }, t('studioScheduleHint'))),
       this.scheduleToggle);
     this.sheet.body.append(h('form', {
-      class: 'compose-form',
+      class: 'compose-form creator-form',
       onsubmit: event => { event.preventDefault(); this.#publish(); },
     },
-    h('section', { class: 'compose-card compose-media-card', 'aria-labelledby': 'composeMediaHeading' },
-      h('h3', { class: 'compose-card-title', id: 'composeMediaHeading' }, t('mediaLabel')),
-      mediaButton, this.mediaInput, this.preview,
+    h('header', { class: 'creator-header' }, closeButton, soundButton, h('span', { class: 'creator-header-spacer', 'aria-hidden': 'true' })),
+    this.mediaInput, this.audioInput,
+    h('div', { class: 'creator-stage-wrap' },
+      this.stage, this.textStage, this.stageMessage,
+      h('aside', { class: 'creator-tool-rail', 'aria-label': t('camera') }, flipButton, flashButton, effectsButton, timerButton, moreButton)),
+    modeRow,
+    h('div', { class: 'creator-capture-row' }, galleryButton, this.shutter, effectsShortcut),
+    this.captionWrap,
+    this.audioBar,
+    detailsToggle,
+    this.creatorDetails,
+    h('div', { class: 'creator-bottom-switch', role: 'group', 'aria-label': t('create') }, cameraViewButton, createViewButton),
+    h('div', { class: 'creator-submit-area' }, this.submit, this.message)));
+    this.creatorDetails.append(
       h('div', { class: 'compose-assist' }, this.assist, this.style),
-      audioButton, this.audioInput, this.audioPreview),
-    h('section', { class: 'compose-card compose-caption-card', 'aria-labelledby': 'composeCaptionHeading' },
-      h('div', { class: 'compose-card-heading' },
-        h('h3', { class: 'compose-card-title', id: 'composeCaptionHeading' }, t('captionLabel')),
-        this.captionCount),
-      this.caption),
-    h('section', { class: 'compose-card compose-schedule-card' },
-      scheduleLabel,
-      this.scheduleDateWrap),
-    h('div', { class: 'compose-submit-area' }, this.submit, this.message)));
+      h('section', { class: 'compose-card compose-schedule-card' }, scheduleLabel, this.scheduleDateWrap));
   }
 
   open() {
@@ -122,7 +222,213 @@ export class ComposeSheet {
     this.scheduleDate.min = new Date(earliest.getTime() - earliest.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     this.scheduleDate.max = new Date(latest.getTime() - latest.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     this.#paintSchedule();
+    this.creatorDetails.hidden = true;
+    this.audioBar.hidden = !this.audioFile;
+    this.stage.dataset.filter = '0';
+    this.stage.dataset.timer = '';
+    this.stage.classList.remove('creator-more-active');
+    Object.values(this.cameraToolButtons).forEach(button => button.classList.remove('is-active'));
+    this.viewModeButtons.camera.classList.add('is-selected');
+    this.viewModeButtons.camera.setAttribute('aria-pressed', 'true');
+    this.viewModeButtons.create.classList.remove('is-selected');
+    this.viewModeButtons.create.setAttribute('aria-pressed', 'false');
+    this.cameraVideo.classList.toggle('is-selfie', this.cameraFacing === 'user');
+    this.captureMode = 'photo';
+    this.captureDuration = 15_000;
+    this.cameraFilter = 0;
+    this.#setCaptureMode('photo');
+    this.stageMessage.textContent = '';
+    this.preview.replaceChildren();
+    this.stage.classList.remove('has-media');
     this.sheet.open();
+    void this.#startCamera();
+  }
+
+  async #startCamera() {
+    if (this.cameraStream || this.cameraStarting || !this.sheet.isOpen) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.stageMessage.textContent = t('cameraAccessFailed');
+      return;
+    }
+    this.cameraStarting = true;
+    const request = ++this.cameraRequest;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { facingMode: this.cameraFacing, width: { ideal: 1080 }, height: { ideal: 1920 } },
+      });
+      if (request !== this.cameraRequest || !this.sheet.isOpen) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      this.cameraStream = stream;
+      this.cameraVideo.classList.toggle('is-selfie', this.cameraFacing === 'user');
+      this.cameraVideo.srcObject = this.cameraStream;
+      await this.cameraVideo.play();
+      this.stageMessage.textContent = '';
+    } catch (error) {
+      if (request === this.cameraRequest) {
+        this.stageMessage.textContent = String(error?.message || t('cameraAccessFailed')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('cameraAccessFailed');
+      }
+    } finally {
+      if (request === this.cameraRequest) this.cameraStarting = false;
+    }
+  }
+
+  #stopCamera() {
+    this.cameraRequest++;
+    this.cameraStarting = false;
+    clearTimeout(this.captureTimer);
+    this.captureTimer = 0;
+    if (this.captureRecorder && this.captureRecorder.state !== 'inactive') {
+      this.captureRecorder.ondataavailable = null;
+      this.captureRecorder.onstop = null;
+      this.captureRecorder.stop();
+    }
+    this.captureRecorder = null;
+    this.captureChunks = [];
+    this.cameraStream?.getTracks().forEach(track => track.stop());
+    this.cameraStream = null;
+    this.cameraVideo.srcObject = null;
+    this.shutter?.classList.remove('is-recording');
+  }
+
+  #setCaptureMode(mode, selectedButton) {
+    this.captureMode = mode;
+    this.stage.dataset.mode = mode;
+    this.stage.classList.toggle('is-text-mode', mode === 'text');
+    this.textStage.hidden = mode !== 'text';
+    if (mode === 'text') this.textStage.append(this.captionWrap);
+    else this.creatorDetails.before(this.captionWrap);
+    if (this.shutter) {
+      this.shutter.setAttribute('aria-label', mode === 'video' ? t('recordVideo') : t('camera'));
+      this.shutter.classList.toggle('video-mode', mode === 'video');
+    }
+    const defaultButton = this.modeButtons.find(button => button.textContent === t(mode === 'text' ? 'textMode' : 'photo'));
+    this.modeButtons.forEach(button => button.setAttribute('aria-pressed', String(button === selectedButton || button === defaultButton)));
+  }
+
+  async #flipCamera() {
+    this.cameraFacing = this.cameraFacing === 'user' ? 'environment' : 'user';
+    this.cameraToolButtons.flashButton.classList.remove('is-active');
+    this.#stopCamera();
+    await this.#startCamera();
+  }
+
+  async #toggleFlash(button) {
+    const track = this.cameraStream?.getVideoTracks()[0];
+    if (!track?.getCapabilities?.().torch) {
+      this.stageMessage.textContent = t('flashUnavailable');
+      return;
+    }
+    const enabled = !button.classList.contains('is-active');
+    try {
+      await track.applyConstraints({ advanced: [{ torch: enabled }] });
+      button.classList.toggle('is-active', enabled);
+      this.stageMessage.textContent = '';
+    } catch (error) {
+      this.stageMessage.textContent = String(error?.message || t('flashUnavailable')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('flashUnavailable');
+    }
+  }
+
+  #cycleCameraFilter(button) {
+    this.cameraFilter = (this.cameraFilter + 1) % 4;
+    this.stage.dataset.filter = String(this.cameraFilter);
+    button?.classList.toggle('is-active', this.cameraFilter > 0);
+  }
+
+  #toggleCaptureTimer(button) {
+    const enabled = !button.classList.contains('is-active');
+    button.classList.toggle('is-active', enabled);
+    this.stage.dataset.timer = enabled ? '3' : '';
+  }
+
+  async #capture() {
+    if (this.captureMode === 'text') {
+      this.caption.focus({ preventScroll: true });
+      return;
+    }
+    if (!this.cameraStream) {
+      await this.#startCamera();
+      if (!this.cameraStream) return;
+    }
+    if (this.captureMode === 'video') {
+      if (this.captureRecorder?.state === 'recording') {
+        this.captureRecorder.stop();
+        return;
+      }
+      this.#recordClip();
+      return;
+    }
+    if (this.stage.dataset.timer === '3') {
+      this.stageMessage.textContent = '3';
+      await new Promise(resolve => { this.captureTimer = setTimeout(resolve, 3000); });
+      this.captureTimer = 0;
+    }
+    const width = this.cameraVideo.videoWidth;
+    const height = this.cameraVideo.videoHeight;
+    if (!width || !height) {
+      this.stageMessage.textContent = t('cameraAccessFailed');
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    const scale = Math.min(1, 2048 / Math.max(width, height));
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    const context = canvas.getContext('2d');
+    if (!context) { this.stageMessage.textContent = t('photoCropFailed'); return; }
+    const filters = ['', 'contrast(1.12) saturate(1.16)', 'sepia(.22) saturate(1.22)', 'grayscale(.45) contrast(1.08)'];
+    context.filter = filters[this.cameraFilter];
+    context.drawImage(this.cameraVideo, 0, 0, canvas.width, canvas.height);
+    const request = this.cameraRequest;
+    canvas.toBlob(blob => {
+      if (!this.sheet.isOpen || request !== this.cameraRequest) return;
+      if (!blob) { this.stageMessage.textContent = t('photoCropFailed'); return; }
+      const photo = new File([blob], `milkyway-capture-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      void this.#pickMedia([photo]);
+      this.stageMessage.textContent = '';
+    }, 'image/jpeg', 0.92);
+  }
+
+  #recordClip() {
+    if (typeof MediaRecorder !== 'function') {
+      this.stageMessage.textContent = t('recordingFailed');
+      return;
+    }
+    try {
+      const formats = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+      const mimeType = formats.find(type => MediaRecorder.isTypeSupported?.(type)) || '';
+      const recorder = new MediaRecorder(this.cameraStream, mimeType ? { mimeType } : undefined);
+      this.captureRecorder = recorder;
+      this.captureChunks = [];
+      recorder.ondataavailable = event => { if (event.data?.size) this.captureChunks.push(event.data); };
+      recorder.onerror = event => {
+        this.stageMessage.textContent = String(event.error?.message || t('recordingFailed')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('recordingFailed');
+        clearTimeout(this.captureTimer);
+        this.captureTimer = 0;
+        this.shutter.classList.remove('is-recording');
+        this.captureRecorder = null;
+      };
+      recorder.onstop = () => {
+        this.shutter.classList.remove('is-recording');
+        this.captureRecorder = null;
+        clearTimeout(this.captureTimer);
+        this.captureTimer = 0;
+        const blob = new Blob(this.captureChunks, { type: recorder.mimeType || 'video/webm' });
+        this.captureChunks = [];
+        if (!blob.size) { this.stageMessage.textContent = t('recordingFailed'); return; }
+        void this.#pickMedia([new File([blob], `milkyway-capture-${Date.now()}.webm`, { type: blob.type })]);
+        this.stageMessage.textContent = '';
+      };
+      recorder.start(250);
+      this.shutter.classList.add('is-recording');
+      this.stageMessage.textContent = t('recording');
+      this.captureTimer = setTimeout(() => {
+        if (recorder.state === 'recording') recorder.stop();
+      }, this.captureDuration);
+    } catch (error) {
+      this.stageMessage.textContent = String(error?.message || t('recordingFailed')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('recordingFailed');
+    }
   }
 
   #paintSchedule() {
@@ -145,6 +451,8 @@ export class ComposeSheet {
     }
     for (const entry of this.files) URL.revokeObjectURL(entry.url);
     this.files = [];
+    this.preview.replaceChildren();
+    this.stage?.classList.remove('has-media');
   }
 
   async #pickMedia(files) {
@@ -188,6 +496,7 @@ export class ComposeSheet {
       return;
     }
     this.message.textContent = '';
+    this.stage.classList.add('has-media');
     for (const [index, entry] of this.files.entries()) {
       const media = video
         ? h('video', { src: entry.url, controls: true, playsinline: true, muted: true, preload: 'metadata' })
@@ -214,6 +523,7 @@ export class ComposeSheet {
     this.audioUrl = null;
     this.audioInput.value = '';
     this.audioPreview.replaceChildren();
+    this.audioBar.hidden = !file;
     if (!file) return;
     this.audioPending = true;
     this.submit.disabled = true;
