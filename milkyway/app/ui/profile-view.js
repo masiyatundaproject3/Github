@@ -14,6 +14,7 @@ import { presence } from '../data/presence.js';
 import { isOwnerAccount } from './admin-view.js';
 
 const quiet = promise => Promise.resolve(promise).then(result => result, () => ({}));
+const profileText = value => typeof value === 'string' ? value.replace(/\b(?:null|undefined)\b/gi, '').trim() : '';
 
 const PROFILE_POST_REQUIRED = ['id', 'author_id', 'caption', 'media_url', 'media_type', 'created_at'];
 const PROFILE_POST_OPTIONAL = ['scheduled_at', 'slideshow_style', 'audio_url', 'media_items', 'media_preview_items'];
@@ -135,7 +136,7 @@ export class ProfileView {
         toast(t('postDeleted'));
       } catch (error) {
         armed = 0; remove.disabled = false; remove.textContent = t('deletePost'); remove.classList.remove('armed');
-        message.textContent = error?.message || t('deleteFailed');
+        message.textContent = profileText(error?.message) || t('deleteFailed');
       }
     };
     this.menu.body.replaceChildren(h('div', { class: 'stack' },
@@ -152,7 +153,7 @@ export class ProfileView {
     this.pendingPhoto = photo;
     this.id = id;
     this.own = id === auth.userId;
-    this.sheet.title = this.own ? t('me') : (person?.name || profiles.peek(id)?.name || t('profile'));
+    this.sheet.title = this.own ? t('me') : (profileText(person?.name || profiles.peek(id)?.name) || t('profile'));
     this.#render({ profile: person || profiles.peek(id) || { id, name: this.own ? auth.name : '' }, loading: true });
     this.sheet.open();
     this.#load(id);
@@ -179,7 +180,7 @@ export class ProfileView {
       const row = profile.data || {};
       const person = { id, name: row.display_name || profiles.peek(id)?.name || (this.own ? auth.name : 'MilkyWay'), username: row.username || '', avatar: row.avatar_url || '', bio: row.bio || '', private: Boolean(row.is_private) };
       profiles.prime([{ id, name: person.name, username: person.username, avatar: person.avatar }]);
-      if (!this.own) this.sheet.title = person.name;
+      if (!this.own) this.sheet.title = profileText(person.name) || t('profile');
       const { data: pin } = await quiet(sb.from('mw_creator_pins').select('post_id').eq('creator_id', id).maybeSingle());
       const profilePosts = Array.isArray(posts.data) ? posts.data : [];
       if (pin?.post_id) profilePosts.sort((a, b) => Number(b.id === pin.post_id) - Number(a.id === pin.post_id));
@@ -188,7 +189,7 @@ export class ProfileView {
         followers: followers.count || 0,
         following: following.count || 0,
         posts: profilePosts,
-        postsError: posts.error?.message || '',
+        postsError: profileText(posts.error?.message),
       };
       this.#render(renderData);
       if (this.own && this.pendingPhoto) {
@@ -218,16 +219,16 @@ export class ProfileView {
       if (token !== this.token || this.mode !== 'profile') return;
       section = h('section', { class: 'mw-profile-services' },
         h('h3', {}, t('studioPortfolio')),
-        h('p', { class: 'muted', role: 'status' }, `${t('studioServiceUnavailable')}: ${error?.message || t('retry')}`));
+        h('p', { class: 'muted', role: 'status' }, `${t('studioServiceUnavailable')}: ${profileText(error?.message) || t('retry')}`));
     }
     if (token === this.token && this.mode === 'profile' && section) this.content.append(section);
   }
 
   #profileService(service, profile) {
     const card = h('article', { class: 'mw-studio-service-card' },
-      h('div', {}, h('small', { class: 'mw-studio-eyebrow' }, service.category),
-        h('h4', {}, service.title), h('p', { class: 'muted' }, service.description),
-        service.pricing ? h('b', { class: 'mw-studio-price' }, service.pricing) : null));
+      h('div', {}, h('small', { class: 'mw-studio-eyebrow' }, profileText(service.category)),
+        h('h4', {}, profileText(service.title)), h('p', { class: 'muted' }, profileText(service.description)),
+        profileText(service.pricing) ? h('b', { class: 'mw-studio-price' }, profileText(service.pricing)) : null));
     if (this.own || !auth.signedIn()) return card;
     const button = h('button', { class: 'pill-btn hot', type: 'button', onclick: () => {
       const note = h('p', { class: 'muted', role: 'status' });
@@ -252,7 +253,7 @@ export class ProfileView {
           submit.remove();
           toast(t('studioInquirySent'));
         } catch (error) {
-          note.textContent = error?.message || t('retry');
+          note.textContent = profileText(error?.message) || t('retry');
           submit.disabled = false;
         }
       } }, preferredAt, inquiryText, submit, note);
@@ -301,14 +302,14 @@ export class ProfileView {
 
     const grid = this.grid = h('div', { class: 'profile-grid' });
     if (loading) grid.append(h('p', { class: 'muted center' }, t('loading')));
-    else if (error || postsError) grid.append(h('p', { class: 'muted center', role: 'status' }, postsError || t('retry')));
+    else if (error || postsError) grid.append(h('p', { class: 'muted center', role: 'status' }, profileText(postsError) || t('retry')));
     else if (!this.posts.length) grid.append(h('p', { class: 'muted center' }, this.own ? t('noPostsYet') : t('empty')));
     else grid.append(...this.posts.map(post => tile(post, {
       open: () => this.#openPost(post),
       menu: this.own ? () => this.#postMenu(post) : null,
     })));
 
-    const profileAvatar = avatar(profile, 84);
+    const profileAvatar = avatar({ ...profile, name: profileText(profile.name) }, 84);
     const avatarControl = this.own
       ? h('button', { class: 'profile-avatar-shortcut', type: 'button', 'aria-label': t('changeProfilePhoto'), onclick: () => this.#edit(profile, { openPicker: true }) },
         h('span', { class: `presence-avatar${presence.isOnline(profile.id) || presence.visible ? ' online' : ''}`, 'data-presence': profile.id },
@@ -319,20 +320,20 @@ export class ProfileView {
       h('div', { class: 'profile-head' },
         avatarControl,
         h('div', { class: 'profile-names' },
-          h('b', {}, profile.name || ''),
-          profile.username ? h('span', { class: 'muted' }, `@${profile.username}`) : null,
+          h('b', {}, profileText(profile.name)),
+          profileText(profile.username) ? h('span', { class: 'muted' }, `@${profileText(profile.username)}`) : null,
           profile.private ? h('small', { class: 'muted' }, `🔒 ${t('privateAccount')}`) : null,
           presence.isOnline(profile.id) || (this.own && presence.visible) ? h('small', { class: 'presence-label' }, t('activeNow')) : null)),
-      profile.bio ? h('p', { class: 'profile-bio' }, profile.bio) : null,
+      profileText(profile.bio) ? h('p', { class: 'profile-bio' }, profileText(profile.bio)) : null,
       stats, actionsRow, grid);
   }
 
   #edit(profile, { openPicker = false, photo: initialPhoto = null } = {}) {
     this.mode = 'edit';
-    const name = h('input', { class: 'field', maxlength: '60', value: profile.name || '', placeholder: t('displayName'), required: true });
-    const username = h('input', { class: 'field', maxlength: '30', value: profile.username || '', placeholder: t('username'), autocapitalize: 'off', spellcheck: 'false' });
+    const name = h('input', { class: 'field', maxlength: '60', value: profileText(profile.name), placeholder: t('displayName'), required: true });
+    const username = h('input', { class: 'field', maxlength: '30', value: profileText(profile.username), placeholder: t('username'), autocapitalize: 'off', spellcheck: 'false' });
     const bio = h('textarea', { class: 'field area', maxlength: '300', placeholder: t('bio') });
-    bio.value = profile.bio || '';
+    bio.value = profileText(profile.bio);
     const message = h('p', { class: 'muted', role: 'status' });
     const photoInput = h('input', { type: 'file', accept: 'image/*,.heic,.heif', hidden: true });
     const photoPreview = h('div', { class: 'profile-photo-preview' }, avatar(profile, 72));
@@ -340,7 +341,7 @@ export class ProfileView {
     let previewUrl = '';
     let selectionVersion = 0;
     const choosePhoto = h('button', { class: 'pill-btn', type: 'button', onclick: () => {
-      try { openFilePicker(photoInput); } catch (error) { message.textContent = error.message || t('photoUnsupported'); }
+      try { openFilePicker(photoInput); } catch (error) { message.textContent = profileText(error.message) || t('photoUnsupported'); }
     } }, t('choosePhoto'));
     const clearPreview = () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -364,7 +365,7 @@ export class ProfileView {
       } catch (error) {
         if (version !== selectionVersion) return;
         photoInput.value = '';
-        message.textContent = error?.message || t('photoUnsupported');
+        message.textContent = profileText(error?.message) || t('photoUnsupported');
       } finally {
         if (version === selectionVersion) {
           submit.disabled = false;
@@ -431,7 +432,7 @@ export class ProfileView {
             console.error('[profile] failed to clean up an unlinked photo upload', cleanupError);
           }
         }
-        message.textContent = error?.message || t('photoUploadFailed');
+        message.textContent = profileText(error?.message) || t('photoUploadFailed');
         submit.disabled = false; choosePhoto.disabled = false; photoInput.disabled = false;
       }
     } }, name, username, bio,
@@ -444,7 +445,7 @@ export class ProfileView {
     h('button', { class: 'link center', type: 'button', onclick: () => { selectionVersion++; selectedPhoto = null; clearPreview(); this.#load(this.id); } }, t('cancel'))));
     if (initialPhoto) void selectPhoto(initialPhoto);
     else if (openPicker) {
-      try { openFilePicker(photoInput); } catch (error) { message.textContent = error.message || t('photoUnsupported'); }
+      try { openFilePicker(photoInput); } catch (error) { message.textContent = profileText(error.message) || t('photoUnsupported'); }
     }
   }
 
@@ -453,7 +454,8 @@ export class ProfileView {
 function tile(post, { open, menu }) {
   const kind = postKind(post);
   const url = typeof post?.media_url === 'string' ? post.media_url : '';
-  const node = h('div', { class: `profile-tile ${kind}`, role: 'button', tabindex: '0', 'data-post': String(post?.id || ''), 'aria-label': post?.caption || t('post') });
+  const caption = profileText(post?.caption);
+  const node = h('div', { class: `profile-tile ${kind}`, role: 'button', tabindex: '0', 'data-post': String(post?.id || ''), 'aria-label': caption || t('post') });
   if (kind === 'video') {
     const still = poster(url, 360);
     if (still) {
@@ -466,12 +468,12 @@ function tile(post, { open, menu }) {
     }
     node.append(h('span', { class: 'tile-badge', html: icon.play, 'aria-hidden': 'true' }));
   } else if (kind === 'image') {
-    const img = h('img', { alt: post.caption || '', loading: 'lazy', decoding: 'async', draggable: 'false' });
+    const img = h('img', { alt: caption, loading: 'lazy', decoding: 'async', draggable: 'false' });
     const preview = Array.isArray(post.media_preview_items) ? post.media_preview_items[0] || url : url;
     setImage(img, preview, 360, { quality: 65, onFail: () => { node.classList.add('missing'); img.remove(); node.prepend(h('span', { class: 'tile-missing', 'aria-hidden': 'true' }, '🖼')); } });
     node.append(img);
   } else {
-    node.append(h('p', {}, (post.caption || '').slice(0, 140)));
+    node.append(h('p', {}, caption.slice(0, 140)));
   }
   if (post.scheduled_at && Date.parse(post.scheduled_at) > Date.now()) {
     node.append(h('span', { class: 'mw-profile-scheduled' }, t('studioScheduled')));
