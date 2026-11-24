@@ -69,10 +69,39 @@ export class FollowersView {
       'aria-label': t('searchConnections'), autocomplete: 'off', 'data-no-swipe': true,
     });
     this.search.addEventListener('input', () => { this.searchTerm = this.search.value.trim().toLocaleLowerCase(); this.#renderRows(); });
-    this.sortSelect = h('select', {
-      class: 'field connections-sort', 'aria-label': t('sortConnections'), 'data-no-swipe': true,
-      onchange: () => { this.sort = this.sortSelect.value; this.#renderRows(); },
-    }, h('option', { value: 'recent' }, t('sortRecent')), h('option', { value: 'name' }, t('sortName')), h('option', { value: 'live' }, t('sortLive')));
+    const sortOptions = [
+      ['recent', t('sortRecent')],
+      ['name', t('sortName')],
+      ['live', t('sortLive')],
+    ];
+    this.sortMenu = h('div', {
+      class: 'connections-sort-menu', role: 'menu',
+      'aria-label': t('sortConnections'), 'data-no-swipe': true, hidden: true,
+    }, ...sortOptions.map(([value, label]) => h('button', {
+      class: 'connections-sort-option', type: 'button', role: 'menuitemradio',
+      'aria-checked': String(this.sort === value), 'data-sort-value': value,
+      onclick: () => {
+        this.sort = value;
+        this.sortButton.replaceChildren(h('span', {}, label), h('span', { class: 'connections-sort-chevron', 'aria-hidden': 'true' }, '⌄'));
+        this.sortMenu.hidden = true;
+        this.sortButton.setAttribute('aria-expanded', 'false');
+        for (const option of this.sortMenu.querySelectorAll('[data-sort-value]')) {
+          option.setAttribute('aria-checked', String(option.dataset.sortValue === value));
+        }
+        this.#renderRows();
+      },
+    }, h('span', {}, label), h('span', { class: 'connections-sort-check', 'aria-hidden': 'true' }, '✓'))));
+    this.sortMenu.id = `connectionsSortMenu-${Math.random().toString(36).slice(2)}`;
+    this.sortButton = h('button', {
+      class: 'connections-sort', type: 'button', 'aria-label': t('sortConnections'),
+      'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-controls': this.sortMenu.id,
+      'data-no-swipe': true,
+      onclick: () => {
+        this.sortMenu.hidden = !this.sortMenu.hidden;
+        this.sortButton.setAttribute('aria-expanded', String(!this.sortMenu.hidden));
+      },
+    }, h('span', {}, t('sortRecent')), h('span', { class: 'connections-sort-chevron', 'aria-hidden': 'true' }, '⌄'));
+    this.sortPicker = h('div', { class: 'connections-sort-wrap', 'data-no-swipe': true }, this.sortButton, this.sortMenu);
     this.manageButton = h('button', {
       class: 'connections-manage', type: 'button', 'aria-pressed': 'false', 'data-no-swipe': true,
       onclick: () => {
@@ -83,7 +112,7 @@ export class FollowersView {
         this.#renderRows();
       },
     }, t('manage'));
-    this.controls = h('div', { class: 'connections-controls', 'data-no-swipe': true }, this.sortSelect, this.manageButton);
+    this.controls = h('div', { class: 'connections-controls', 'data-no-swipe': true }, this.sortPicker, this.manageButton);
     this.toolbar = h('div', { class: 'connections-tools', 'data-no-swipe': true }, this.search, this.controls);
     this.content = h('div', { class: 'connections-content', 'data-no-swipe': true });
     this.sheet.body.replaceChildren(this.header, this.tabs, this.toolbar, this.content);
@@ -206,13 +235,23 @@ export class FollowersView {
     } catch (error) {
       if (token !== this.token) return;
       console.error('[connections] Could not load connections.', error);
-      this.content.replaceChildren(h('p', { class: 'muted center', role: 'status' }, displayText(error?.message) || t('retry')));
+      this.content.replaceChildren(h('p', { class: 'muted center', role: 'status' }, t('retry')));
     }
   }
 
   async #loadSuggested(token) {
     this.content.replaceChildren(h('p', { class: 'muted center', role: 'status' }, t('loading')));
-    const suggestions = await loadSuggestions();
+    let suggestions;
+    try {
+      suggestions = await loadSuggestions();
+    } catch (error) {
+      if (token !== this.token) return;
+      console.error('[connections] Suggested accounts could not be loaded.', error);
+      this.suggestions = [];
+      if (this.mode === 'activity') this.#renderActivity();
+      else this.content.replaceChildren(h('p', { class: 'muted center', role: 'status' }, t('retry')));
+      return;
+    }
     if (token !== this.token) return;
     this.suggestions = suggestions.filter(person => person?.id && String(person.id) !== String(auth.userId || '')
       && !profiles.isFollowing(person.id) && !profiles.isRequested(person.id) && !this.dismissed.has(String(person.id)));
@@ -287,7 +326,7 @@ export class FollowersView {
             await this.#load(this.token);
           } catch (error) {
             console.error('[connections] Could not accept follow request.', error);
-            toast(displayText(error?.message) || t('retry'));
+            toast(t('retry'));
             accept.disabled = false;
           }
         },
@@ -305,7 +344,7 @@ export class FollowersView {
             this.#renderActivity();
           } catch (error) {
             console.error('[connections] Could not dismiss follow request.', error);
-            toast(displayText(error?.message) || t('retry'));
+            toast(t('retry'));
             dismiss.disabled = false;
           }
         },
@@ -391,7 +430,7 @@ export class FollowersView {
           this.#renderRows();
         } catch (error) {
           console.error('[connections] Follow action failed.', error);
-          toast(displayText(error?.message) || t('retry'));
+          toast(t('retry'));
           action.disabled = false;
         }
       },
@@ -408,7 +447,7 @@ export class FollowersView {
           h('button', { type: 'button', onclick: () => this.openProfile?.(person) }, t('viewProfile')),
           following || requested ? h('button', { type: 'button', onclick: async () => {
             try { await actions.follow(id, false); this.#renderRows(); }
-            catch (error) { console.error('[connections] Could not remove connection.', error); toast(displayText(error?.message) || t('retry')); }
+            catch (error) { console.error('[connections] Could not remove connection.', error); toast(t('retry')); }
           } }, requested ? t('cancelRequest') : t('unfollow')) : null);
         row.append(menu);
       },
