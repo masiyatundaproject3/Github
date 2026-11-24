@@ -1099,14 +1099,15 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
 .msg small { display: block; margin-top: 2px; font-size: 11px; opacity: .7; text-align: end; }
 .msg.pending { opacity: .6; }
 .msg.failed { border-color: #ff3b6b; }
-.msg-form { display: flex; align-items: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-.msg-input { flex: 1; height: auto; min-height: 44px; max-height: 120px; padding: 11px 14px; resize: none; line-height: 1.35; }
-.msg-send { flex: none; height: 44px; }
+.msg-form { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.msg-input { width: 100%; height: auto; min-height: 40px; max-height: 120px; padding: 7px 8px; resize: none; line-height: 1.35; border: 0; border-radius: 9px; background: transparent; box-shadow: none; }
+.msg-input:focus { outline: none; box-shadow: none; }
 .dm-composer { display: grid; gap: 8px; align-items: stretch; }
-.dm-composer-row { display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
-.dm-composer-row .msg-input { min-width: 30px; }
-.dm-composer-actions { display: flex; flex: none; align-items: flex-end; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); }
-.dm-composer-actions .chat-tool { background: transparent; }
+.dm-input-shell { display: grid; gap: 3px; min-width: 0; padding: 5px; border: 1px solid rgba(177,154,255,.24); border-radius: 15px; background: linear-gradient(145deg, rgba(20,22,61,.96), rgba(8,10,31,.98)); box-shadow: inset 0 1px rgba(255,255,255,.045); }
+.dm-input-shell:focus-within { border-color: rgba(130,166,255,.54); box-shadow: 0 0 0 2px rgba(95,117,220,.1), inset 0 1px rgba(255,255,255,.06); }
+.dm-input-toolbar { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.dm-composer-actions { position: relative; display: flex; flex: 1; align-items: center; gap: 4px; min-width: 0; }
+.dm-composer-actions > .chat-tool { background: rgba(255,255,255,.045); }
 .dm-composer-actions .chat-tool.active { background: var(--electric); }
 .dm-composer-actions .chat-voice-changer { color: var(--accent-2); }
 .chat-note-group { position: relative; flex: none; }
@@ -1119,17 +1120,17 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
 .chat-note-menu .chat-tool { width: auto; min-width: 142px; height: 38px; display: flex; justify-content: flex-start; gap: 9px; padding: 0 10px; border-radius: 9px; font-size: 12px; white-space: nowrap; }
 .chat-note-menu .chat-tool::after { content: attr(title); color: var(--fg); }
 .chat-note-toggle.is-recording { color: #fff; background: #d9385b; box-shadow: 0 0 0 3px rgba(217,56,91,.2); }
-.dm-composer-row .dm-composer-actions .chat-note-toggle {
-  width: 44px; height: 44px; border: 1px solid rgba(255,210,220,.54); border-radius: 50%;
+.dm-composer-actions .chat-note-toggle {
+  width: 36px; height: 36px; border: 1px solid rgba(255,210,220,.54); border-radius: 50%;
   color: #fff; background: radial-gradient(circle at 35% 25%, #ff718b, #e62f59 58%, #9d173e);
   box-shadow: inset 0 1px rgba(255,255,255,.24), 0 0 14px rgba(230,47,89,.3);
-  font-size: 24px; line-height: 1;
+  font-size: 20px; line-height: 1;
 }
-.dm-composer-row .dm-composer-actions .chat-note-toggle:hover {
+.dm-composer-actions .chat-note-toggle:hover {
   background: radial-gradient(circle at 35% 25%, #ff8aa0, #f13b66 58%, #b51d49);
   box-shadow: inset 0 1px rgba(255,255,255,.28), 0 0 18px rgba(230,47,89,.44);
 }
-.dm-composer-row .dm-composer-actions .chat-note-toggle.is-recording {
+.dm-composer-actions .chat-note-toggle.is-recording {
   background: radial-gradient(circle at 35% 25%, #ff8197, #f12651 58%, #a70f35);
   box-shadow: 0 0 0 3px rgba(241,38,81,.24), 0 0 18px rgba(241,38,81,.42);
   animation: videoNoteRecordPulse 1s ease-in-out infinite;
@@ -1137,7 +1138,7 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
 .dm-walkie-controls { position: relative; display: flex; flex: none; align-items: center; gap: 4px; }
 .dm-walkie-controls:empty { display: none; }
 .walkie-talk-button.walkie-talk-button-inline {
-  width: 38px; height: 40px; aspect-ratio: auto; display: grid; place-items: center; gap: 0;
+  width: 36px; height: 36px; aspect-ratio: auto; display: grid; place-items: center; gap: 0;
   border: 1px solid rgba(255,255,255,.28); border-radius: 11px; box-shadow: 0 0 12px rgba(185,24,58,.25);
 }
 .walkie-talk-button-inline svg { width: 19px; height: 19px; }
@@ -1145,17 +1146,19 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
 .dm-walkie-controls .walkie-time { color: #ff8296; font-size: 10px; font-variant-numeric: tabular-nums; }
 .dm-walkie-controls .walkie-inline-status { position: absolute; z-index: 5; right: 0; bottom: calc(100% + 7px); width: max-content; max-width: 70vw; min-height: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: rgba(8,10,33,.96); color: var(--fg); font-size: 11px; }
 .dm-walkie-controls .walkie-inline-status:empty { display: none; }
-.chat-voice-preset { width: min(135px, 34vw); height: 38px; padding: 0 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--fg); font-size: 12px; }
+.chat-voice-preset { position: absolute; z-index: 8; right: 0; bottom: calc(100% + 8px); width: min(160px, 48vw); height: 38px; padding: 0 6px; border: 1px solid var(--line); border-radius: 10px; background: linear-gradient(145deg, rgba(28,27,73,.98), rgba(7,10,34,.99)); color: var(--fg); font-size: 12px; }
 .chat-voice-preset[hidden] { display: none; }
 .dm-composer-actions .chat-video-note { color: #fff; background: #c92f50; }
 .dm-composer-actions .chat-video-note:hover { background: #e13b5e; }
 .dm-composer-actions .chat-video-note.is-recording { color: #fff; background: #f12651; box-shadow: 0 0 0 3px rgba(241,38,81,.28); animation: videoNoteRecordPulse 1s ease-in-out infinite; }
 @keyframes videoNoteRecordPulse { 50% { box-shadow: 0 0 0 6px rgba(241,38,81,.08); } }
-.chat-tool { flex: none; width: 38px; height: 40px; display: grid; place-items: center; padding: 0; border-radius: 12px; color: var(--accent-2); background: var(--panel-2); font-size: 19px; }
+.chat-tool { flex: none; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border-radius: 10px; color: var(--accent-2); background: var(--panel-2); font-size: 18px; }
 .chat-tool:disabled { opacity: .45; cursor: not-allowed; }
 .chat-tool.active { color: #fff; background: var(--electric); box-shadow: var(--glow); }
 .chat-tool.is-recording { color: #fff; background: #d9385b; box-shadow: 0 0 0 3px rgba(217, 56, 91, .2); }
-.chat-view-once { width: 34px; font-size: 13px; font-weight: 800; }
+.chat-view-once { font-size: 13px; font-weight: 800; }
+.msg-send { color: #fff; background: linear-gradient(135deg, var(--nebula), var(--electric)); box-shadow: var(--glow); }
+.msg-send svg { width: 17px; height: 17px; }
 .chat-media-picker { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .chat-media-preview { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 52px; padding: 8px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); }
 .chat-media-preview[hidden] { display: none; }
@@ -1201,11 +1204,10 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
   .inbox-actions { width: 100%; justify-content: flex-start; }
   .group-member-row { flex-wrap: wrap; }
   .group-member-actions { width: 100%; margin-inline-start: 40px; }
-  .dm-composer-row { gap: 4px; }
-  .dm-composer-row .chat-tool { width: 32px; height: 38px; }
-  .dm-composer-actions { gap: 0; padding: 1px; }
-  .dm-composer-row .chat-view-once { width: 30px; }
-  .dm-composer-row .msg-send { padding: 0 9px; font-size: 13px; }
+  .dm-input-toolbar { gap: 3px; }
+  .dm-composer-actions { gap: 3px; }
+  .dm-input-toolbar > .chat-tool, .dm-composer-actions > .chat-tool,
+  .dm-composer-actions .walkie-talk-button.walkie-talk-button-inline { width: 34px; height: 34px; }
 }
 
 /* ---- Calls --------------------------------------------------------------------------------------------------- */

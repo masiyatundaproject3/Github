@@ -70,18 +70,25 @@ export class ChatComposer {
     this.video.addEventListener('click', () => { this.noteMenu.hidden = true; this.noteButton.setAttribute('aria-expanded', 'false'); });
     this.walkieSlot = h('div', { class: 'dm-walkie-controls', 'aria-label': t('walkieTalkie') });
     this.once = h('button', {
-      class: 'chat-tool chat-view-once', type: 'button', 'aria-pressed': 'false',
+      class: 'chat-tool chat-view-once', type: 'button', 'aria-pressed': 'false', hidden: true,
       title: t('viewOnce'), 'aria-label': t('viewOnce'),
       onclick: () => this.#toggleOnce(),
     }, '1×');
-    this.send = h('button', { class: 'pill-btn hot msg-send', type: 'submit', 'aria-label': t('send') }, t('send'));
+    this.voiceEffectButton.addEventListener('click', () => { this.once.hidden = false; });
+    this.send = h('button', {
+      class: 'chat-tool msg-send', type: 'submit', 'aria-label': t('send'), title: t('send'),
+      html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.4 20.2 22 12 2.4 3.8 2 10l13 2-13 2z"/></svg>',
+    });
     this.preview = h('div', { class: 'chat-media-preview', hidden: true });
     this.form = h('form', { class: 'msg-form dm-composer', onsubmit: event => { event.preventDefault(); this.#submit(); } },
       this.preview,
-      h('div', { class: 'dm-composer-row' }, this.attachment, this.input,
-        h('div', { class: 'dm-composer-actions' }, this.once,
-          h('div', { class: 'chat-note-group' }, this.noteButton, this.noteMenu),
-          this.voiceEffectButton, this.voicePresetSelect, this.walkieSlot), this.send),
+      h('div', { class: 'dm-input-shell' },
+        this.input,
+        h('div', { class: 'dm-input-toolbar' }, this.attachment,
+          h('div', { class: 'dm-composer-actions' }, this.once,
+            h('div', { class: 'chat-note-group' }, this.noteButton, this.noteMenu),
+            this.voiceEffectButton, this.voicePresetSelect, this.walkieSlot),
+          this.send)),
       this.picker);
     this.picker.addEventListener('change', () => {
       const file = this.picker.files?.[0];
