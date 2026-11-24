@@ -60,6 +60,10 @@ export class ComposeSheet {
     this.mediaInput = h('input', { type: 'file', accept: 'image/*,video/*,.heic,.heif,.mov,.m4v,.3gp', multiple: true, hidden: true, onchange: () => { void this.#pickMedia([...(this.mediaInput.files || [])]); } });
     this.audioInput = h('input', { type: 'file', accept: 'audio/*,.m4a,.aac,.wav,.ogg,.opus,.mp3', hidden: true, onchange: () => { void this.#pickAudio(this.audioInput.files?.[0] || null); } });
     this.caption = h('textarea', { class: 'field area', maxlength: '2200', placeholder: t('captionPlaceholder') });
+    this.captionCount = h('small', { class: 'compose-count', 'aria-live': 'polite' }, `0 / ${this.caption.maxLength}`);
+    this.caption.addEventListener('input', () => {
+      this.captionCount.textContent = `${this.caption.value.length} / ${this.caption.maxLength}`;
+    });
     this.style = h('select', { class: 'field', 'aria-label': t('slideshowStyle') },
       h('option', { value: 'fade' }, t('styleFade')),
       h('option', { value: 'zoom' }, t('styleZoom')),
@@ -69,18 +73,43 @@ export class ComposeSheet {
     this.assist = h('button', { class: 'pill-btn', type: 'button', onclick: () => this.#autoStyle() }, t('autoStyle'));
     this.audioPreview = h('div', { class: 'compose-audio-preview' });
     this.scheduleToggle = h('input', { type: 'checkbox', class: 'lc-switch', role: 'switch', onchange: () => this.#paintSchedule() });
-    this.scheduleDate = h('input', { class: 'field', type: 'datetime-local', hidden: true, 'aria-label': t('studioScheduleTime') });
+    this.scheduleDate = h('input', { class: 'field compose-schedule-date', type: 'datetime-local', disabled: true, 'aria-label': t('studioScheduleTime') });
+    this.scheduleDateWrap = h('div', { class: 'compose-schedule-date-wrap', 'aria-hidden': 'true' },
+      h('div', { class: 'compose-schedule-date-inner' }, this.scheduleDate));
     this.message = h('p', { class: 'muted', role: 'status' });
-    this.submit = h('button', { class: 'pill-btn hot wide', type: 'submit' }, t('publish'));
-    this.sheet.body.append(h('form', { class: 'stack', onsubmit: event => { event.preventDefault(); this.#publish(); } },
-      h('button', { class: 'pill-btn wide', type: 'button', onclick: () => this.#openPicker(this.mediaInput) }, t('choosePhotosOrVideo')),
-      this.mediaInput, this.preview,
+    this.submit = h('button', { class: 'pill-btn hot wide compose-submit', type: 'submit' }, t('publish'));
+    const mediaButton = h('button', {
+      class: 'pill-btn wide compose-media-button', type: 'button',
+      onclick: () => this.#openPicker(this.mediaInput),
+    }, h('span', { class: 'compose-action-icon', 'aria-hidden': 'true' }, '＋'), t('choosePhotosOrVideo'));
+    const audioButton = h('button', {
+      class: 'pill-btn wide compose-media-button', type: 'button',
+      onclick: () => this.#openPicker(this.audioInput),
+    }, h('span', { class: 'compose-action-icon compose-audio-icon', 'aria-hidden': 'true' }, '♫'), t('attachAudio'));
+    this.scheduleToggle.id = 'composeScheduleToggle';
+    const scheduleLabel = h('label', { class: 'compose-schedule-toggle', for: this.scheduleToggle.id },
+      h('span', { class: 'compose-schedule-copy' },
+        h('b', {}, t('studioSchedulePost')),
+        h('small', { class: 'muted' }, t('studioScheduleHint'))),
+      this.scheduleToggle);
+    this.sheet.body.append(h('form', {
+      class: 'compose-form',
+      onsubmit: event => { event.preventDefault(); this.#publish(); },
+    },
+    h('section', { class: 'compose-card compose-media-card', 'aria-labelledby': 'composeMediaHeading' },
+      h('h3', { class: 'compose-card-title', id: 'composeMediaHeading' }, t('mediaLabel')),
+      mediaButton, this.mediaInput, this.preview,
       h('div', { class: 'compose-assist' }, this.assist, this.style),
-      h('button', { class: 'pill-btn wide', type: 'button', onclick: () => this.#openPicker(this.audioInput) }, t('attachAudio')),
-      this.audioInput, this.audioPreview,
-      h('label', { class: 'lc-toggle nova-toggle' }, h('span', {}, t('studioSchedulePost'), h('small', { class: 'muted' }, t('studioScheduleHint'))), this.scheduleToggle),
-      this.scheduleDate,
-      this.caption, this.submit, this.message));
+      audioButton, this.audioInput, this.audioPreview),
+    h('section', { class: 'compose-card compose-caption-card', 'aria-labelledby': 'composeCaptionHeading' },
+      h('div', { class: 'compose-card-heading' },
+        h('h3', { class: 'compose-card-title', id: 'composeCaptionHeading' }, t('captionLabel')),
+        this.captionCount),
+      this.caption),
+    h('section', { class: 'compose-card compose-schedule-card' },
+      scheduleLabel,
+      this.scheduleDateWrap),
+    h('div', { class: 'compose-submit-area' }, this.submit, this.message)));
   }
 
   open() {
@@ -97,7 +126,10 @@ export class ComposeSheet {
   }
 
   #paintSchedule() {
-    this.scheduleDate.hidden = !this.scheduleToggle.checked;
+    const enabled = this.scheduleToggle.checked;
+    this.scheduleDateWrap.classList.toggle('is-expanded', enabled);
+    this.scheduleDateWrap.setAttribute('aria-hidden', String(!enabled));
+    this.scheduleDate.disabled = !enabled;
     this.submit.textContent = this.scheduleToggle.checked ? t('studioSchedulePost') : t('publish');
   }
 
@@ -274,7 +306,10 @@ export class ComposeSheet {
       scheduledAt = new Date(scheduledTime).toISOString();
     }
     this.publishing = true;
-    this.submit.disabled = true; this.message.textContent = t('uploading');
+    this.submit.disabled = true;
+    this.submit.textContent = t('uploading');
+    this.submit.setAttribute('aria-busy', 'true');
+    this.message.textContent = t('uploading');
     let phase = 'connecting to Supabase';
     try {
       const sb = await supabase();
@@ -335,7 +370,9 @@ export class ComposeSheet {
       if (!savedPost?.id || savedPost.author_id !== auth.userId) {
         throw new Error('Supabase did not return the saved post.');
       }
-      this.caption.value = ''; this.#releaseMedia(); this.#pickAudio(null);
+      this.caption.value = '';
+      this.captionCount.textContent = `0 / ${this.caption.maxLength}`;
+      this.#releaseMedia(); this.#pickAudio(null);
       this.preview.replaceChildren(); this.message.textContent = '';
       this.sheet.close();
       toast(scheduledAt ? t('studioScheduledSuccess') : t('published'));
@@ -350,6 +387,8 @@ export class ComposeSheet {
       this.message.textContent = publishError(error, failedPhase);
     } finally {
       this.publishing = false;
+      this.submit.removeAttribute('aria-busy');
+      this.submit.textContent = this.scheduleToggle.checked ? t('studioSchedulePost') : t('publish');
       this.submit.disabled = false;
     }
   }

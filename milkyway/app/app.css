@@ -824,15 +824,54 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
 .profile-tile.text { display: grid; place-items: center; padding: 8px; background: linear-gradient(160deg, #120a3d, var(--midnight)); }
 .profile-tile.text p { margin: 0; font-size: 12px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
 .field.area { height: auto; min-height: 88px; padding: 10px 14px; resize: vertical; }
+.compose-sheet { max-height: min(92dvh, 820px); padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+.compose-sheet .sheet-body { gap: 12px; }
+.compose-form { display: grid; gap: 12px; min-height: 0; }
+.compose-card {
+  display: grid; gap: 10px; min-width: 0; padding: 14px;
+  border: 1px solid rgba(177,154,255,.18); border-radius: 17px;
+  background: linear-gradient(145deg, rgba(22,23,63,.78), rgba(8,10,31,.9));
+  box-shadow: inset 0 1px rgba(255,255,255,.045), 0 6px 20px rgba(0,0,0,.12);
+}
+.compose-card-title { margin: 0; color: #eeeaff; font-size: 13px; font-weight: 750; letter-spacing: .025em; }
+.compose-media-button {
+  justify-content: flex-start; min-height: 44px; padding: 9px 12px;
+  border: 1px solid rgba(177,154,255,.2); border-radius: 12px;
+  background: rgba(255,255,255,.045); color: var(--fg); text-align: start;
+}
+.compose-media-button:hover { border-color: rgba(177,154,255,.42); background: rgba(139,103,231,.12); }
+.compose-action-icon { display: grid; flex: none; width: 26px; height: 26px; place-items: center; border-radius: 9px; background: rgba(142,101,230,.2); color: #d7c4ff; font-size: 18px; font-weight: 700; }
+.compose-audio-icon { color: #a9d8ff; background: rgba(71,153,224,.18); }
 .compose-preview { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 8px; align-items: start; }
-.compose-count { grid-column: 1 / -1; }
+.compose-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.compose-count { flex: none; color: rgba(218,215,255,.56); font-size: 11px; font-variant-numeric: tabular-nums; }
+.compose-caption-card .field.area { min-height: 100px; border: 1px solid rgba(177,154,255,.16); border-radius: 12px; background: rgba(5,7,26,.42); }
+.compose-caption-card .field.area:focus { border-color: rgba(155,132,255,.5); box-shadow: 0 0 0 3px rgba(139,103,231,.12); }
 .compose-photo { position: relative; display: grid; justify-items: center; gap: 4px; min-width: 0; }
 .compose-photo img, .compose-photo video { width: 100%; height: 110px; object-fit: cover; border-radius: 10px; background: var(--void); }
 .compose-photo-index { position: absolute; top: 5px; left: 5px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(0,0,0,.7); font-size: 11px; font-weight: 800; }
 .compose-assist { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center; }
-.compose-assist .field { min-width: 0; }
+.compose-assist .field { min-width: 0; height: 42px; border: 1px solid rgba(177,154,255,.18); border-radius: 11px; background: rgba(7,9,30,.8); }
+.compose-assist .pill-btn { min-height: 42px; padding: 8px 10px; border: 1px solid rgba(177,154,255,.2); border-radius: 11px; background: rgba(124,85,198,.17); color: #eeeaff; font-size: 12px; }
+.compose-assist .pill-btn:active, .compose-media-button:active, .compose-submit:active { transform: scale(.98); }
 .compose-audio-preview { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .compose-audio-preview audio { flex: 1; min-width: 0; max-width: 100%; height: 38px; }
+.compose-schedule-card { gap: 0; padding: 0; overflow: hidden; }
+.compose-schedule-toggle { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 68px; padding: 13px 14px; cursor: pointer; }
+.compose-schedule-copy { display: grid; gap: 4px; min-width: 0; }
+.compose-schedule-copy b { font-size: 13px; font-weight: 720; }
+.compose-schedule-copy small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.compose-schedule-date-wrap { display: grid; grid-template-rows: 0fr; padding: 0 14px; opacity: 0; transition: grid-template-rows .24s var(--ease), opacity .2s ease, padding .24s var(--ease); }
+.compose-schedule-date-wrap.is-expanded { grid-template-rows: 1fr; padding: 0 14px 14px; opacity: 1; }
+.compose-schedule-date-inner { min-height: 0; overflow: hidden; }
+.compose-schedule-date { border-color: rgba(177,154,255,.22); background: rgba(5,7,26,.62); color-scheme: dark; }
+.compose-submit-area { position: sticky; z-index: 2; bottom: 0; display: grid; gap: 7px; padding: 8px 0 4px; background: linear-gradient(180deg, rgba(13,15,46,0), rgba(13,15,46,.97) 25%); }
+.compose-submit { min-height: 48px; }
+.compose-submit:disabled { opacity: .58; filter: saturate(.72); cursor: wait; transform: none; }
+.compose-submit-area [role="status"] { margin: 0; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) {
+  .compose-schedule-date-wrap { transition: none; }
+}
 .compose-preview img, .compose-preview video { width: 100%; max-height: 280px; object-fit: contain; border-radius: 12px; background: var(--void); }
 .compose-preview .compose-photo img, .compose-preview .compose-photo video { max-height: none; object-fit: cover; }
 
