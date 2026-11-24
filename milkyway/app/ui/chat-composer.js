@@ -44,7 +44,7 @@ export class ChatComposer {
     this.attachment = this.#tool(t('attachMedia'), '＋', () => this.picker.click());
     this.voice = this.#tool(t('recordVoiceNote'), '🎙', () => this.#record('audio'));
     this.voiceEffectButton = this.#tool(t('voiceChanger'), '♫', () => {
-      this.noteMenu.hidden = true;
+      this.#closePopup(this.noteMenu, this.noteMenuPlaceholder);
       this.noteButton.setAttribute('aria-expanded', 'false');
       this.voicePresetSelect.hidden = !this.voicePresetSelect.hidden;
       this.voiceEffectButton.setAttribute('aria-expanded', String(!this.voicePresetSelect.hidden));
@@ -108,7 +108,7 @@ export class ChatComposer {
         this.input,
         h('div', { class: 'dm-input-toolbar' }, this.attachment,
           h('div', { class: 'dm-composer-actions' }, this.once,
-            h('div', { class: 'chat-note-group' }, this.noteButton, this.noteMenu),
+            h('div', { class: 'chat-note-group' }, this.noteButton, this.noteMenuPlaceholder),
             this.voiceEffectButton, this.voicePresetPlaceholder),
           this.send)),
       this.picker);
@@ -117,6 +117,7 @@ export class ChatComposer {
       if (!this.voicePresetSelect.hidden) this.#placePopup(this.voicePresetSelect, this.voiceEffectButton);
     };
     addEventListener('resize', this.positionOpenPopups, { passive: true });
+    addEventListener('scroll', this.positionOpenPopups, { passive: true, capture: true });
     window.visualViewport?.addEventListener('resize', this.positionOpenPopups, { passive: true });
     window.visualViewport?.addEventListener('scroll', this.positionOpenPopups, { passive: true });
     this.picker.addEventListener('change', () => {
