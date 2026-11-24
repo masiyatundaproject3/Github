@@ -44,6 +44,11 @@ export class InboxView {
         this.active,
         h('div', { class: 'inbox-actions' },
           h('button', { class: 'pill-btn', type: 'button', onclick: () => this.#toggleDiscover() }, t('discoverGroups')),
+          h('button', {
+            class: 'pill-btn inbox-walkie-action', type: 'button',
+            'aria-label': t('walkieTalkie'), title: t('walkieTalkie'),
+            onclick: () => this.chat.walkie.open(),
+          }, h('span', { html: icon.mic }), t('walkieTalkie')),
           h('button', { class: 'pill-btn', type: 'button', onclick: () => this.createGroup.open() }, h('span', { html: icon.plus }), t('createGroup')),
           h('button', { class: 'pill-btn hot', type: 'button', onclick: () => this.#toggleSearch() }, h('span', { html: icon.plus }), t('newChat')))),
       this.searchBox, this.discoverBox, this.groupSection, this.list);
@@ -258,7 +263,7 @@ class ChatSheet {
       h('button', { class: 'chat-header-menu-item', type: 'button', role: 'menuitem', html: icon.camera, onclick: () => { closeCallMenu(); if (this.peer) calls.start(this.peer.id, 'video'); } }, t('videoCall')),
       h('button', { class: 'chat-header-menu-item', type: 'button', role: 'menuitem', html: icon.play, onclick: () => { closeCallMenu(); this.watchParty.openPanel(); } }, t('watchTogether')));
     callMenu.id = 'dmConversationActions';
-    callMenuButton = iconBtn(t('conversationActions'), icon.gear, () => {
+    callMenuButton = iconBtn(t('conversationActions'), phoneIcon, () => {
       callMenu.hidden = !callMenu.hidden;
       callMenuButton.setAttribute('aria-expanded', String(!callMenu.hidden));
     });
