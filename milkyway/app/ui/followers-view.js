@@ -46,7 +46,6 @@ export class FollowersView {
         const label = displayText(person.name) || displayText(person.username) || 'MilkyWay';
         const username = displayText(person.username);
         return h('button', { class: 'chat-row follower-row', type: 'button', onclick: () => {
-          this.sheet.close();
           this.openProfile(person);
         } },
         avatar({ ...person, name: label }, 44),

@@ -1,7 +1,8 @@
 // Profile ("Nova" tab for the signed-in user, or any author tapped in the feed / Lives).
 // Header, counts and posts come from Supabase as the caller, so row-level security decides what is visible.
 import { t } from '../core/i18n.js';
-import { auth, supabase } from '../core/net.js';
+import { api, auth, supabase } from '../core/net.js';
+import { config } from '../config.js';
 import { identifyMediaFile, openFilePicker } from '../core/media-files.js';
 import { optimizeImage } from '../core/media-optimizer.js';
 import { setImage, poster } from '../core/media.js';
@@ -12,6 +13,7 @@ import { h, icon, avatar, count, toast } from './dom.js';
 import { PostViewer, postKind } from './post-viewer.js';
 import { presence } from '../data/presence.js';
 import { isOwnerAccount } from './admin-view.js';
+import { openShare } from './share-sheet.js';
 
 const quiet = promise => Promise.resolve(promise).then(result => result, () => ({}));
 const profileText = value => typeof value === 'string' ? value.replace(/\b(?:null|undefined)\b/gi, '').trim() : '';
@@ -84,14 +86,18 @@ function normalizeProfilePost(row) {
 }
 
 export class ProfileView {
-  constructor({ requireLogin, openCreate, openComments, openMenu, openChat }) {
-    this.hooks = { requireLogin, openCreate, openComments, openMenu, openChat };
-    this.sheet = new Sheet({ title: t('me'), className: 'profile-sheet' });
+  constructor({ requireLogin, openCreate, openComments, openMenu, openChat, openFollowers }) {
+    this.hooks = { requireLogin, openCreate, openComments, openMenu, openChat, openFollowers };
+    this.sheet = new Sheet({ title: t('me'), className: 'profile-sheet', onClose: () => this.#sheetClosed() });
     this.content = h('div', { class: 'profile' });
     this.sheet.body.append(this.content);
     this.token = 0;
     this.posts = [];
     this.viewer = null;
+    this.historyEntry = null;
+    this.historyPopPending = null;
+    this.handlingProfilePop = false;
+    addEventListener('popstate', () => this.#historyChanged());
     // Delete confirmation for a post picked from the grid's "⋯" button.
     this.menu = new Sheet({ title: t('post'), className: 'post-menu-sheet' });
   }
@@ -105,16 +111,126 @@ export class ProfileView {
   }
 
   #openPost(post) {
-    const index = this.posts.indexOf(post);
-    if (index >= 0) this.#viewer().open(this.posts, index, { own: this.own });
+    const source = this.displayPosts || this.posts;
+    const index = source.indexOf(post);
+    if (index >= 0) this.#viewer().open(source, index, { own: post.author_id === auth.userId });
   }
 
   #removed(post) {
-    const at = this.posts.indexOf(post);
+    const postId = String(post.id);
+    const at = this.posts.findIndex(item => String(item.id) === postId);
     if (at >= 0) this.posts.splice(at, 1);
-    this.grid?.querySelector(`[data-post="${CSS.escape(String(post.id))}"]`)?.remove();
-    if (this.postCount) this.postCount.textContent = count(this.posts.length);
-    if (this.grid && !this.posts.length) this.grid.replaceChildren(h('p', { class: 'muted center' }, this.own ? t('noPostsYet') : t('empty')));
+    this.displayPosts = (this.displayPosts || []).filter(item => String(item.id) !== postId);
+    this.grid?.querySelector(`[data-post="${CSS.escape(postId)}"]`)?.remove();
+    if (at >= 0 && this.postCount) this.postCount.textContent = count(this.posts.length);
+    if (this.grid && !this.displayPosts.length) {
+      const message = this.activeTab === 'saved' ? t('noSaved')
+        : this.activeTab === 'liked' ? t('empty')
+          : this.own ? t('noPostsYet') : t('empty');
+      this.#renderGrid([], { message });
+    }
+  }
+
+  #pushProfileHistory() {
+    if (this.historyEntry) return;
+    const state = history.state && typeof history.state === 'object' ? history.state : {};
+    const entry = `profile-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    history.pushState({ ...state, mwProfileSheet: entry }, '', location.href);
+    this.historyEntry = entry;
+  }
+
+  #sheetClosed() {
+    const entry = this.historyEntry;
+    if (!entry || this.handlingProfilePop) return;
+    this.historyEntry = null;
+    if (history.state?.mwProfileSheet === entry) {
+      this.historyPopPending = entry;
+      history.back();
+    }
+  }
+
+  #historyChanged() {
+    const currentEntry = history.state?.mwProfileSheet;
+    if (this.historyPopPending && currentEntry !== this.historyPopPending) {
+      this.historyPopPending = null;
+      return;
+    }
+    if (!this.historyEntry || currentEntry === this.historyEntry) return;
+    const topLayer = [...document.querySelectorAll('.sheet-layer.open, .pv-layer.open')].at(-1);
+    if (topLayer && topLayer !== this.sheet.root) {
+      this.historyEntry = null;
+      if (topLayer.matches('.pv-layer')) topLayer.querySelector('.pv-close')?.click();
+      else topLayer.querySelector('.sheet-backdrop')?.click();
+      this.#pushProfileHistory();
+      return;
+    }
+    this.historyEntry = null;
+    this.handlingProfilePop = true;
+    this.sheet.close();
+    this.handlingProfilePop = false;
+  }
+
+  close() {
+    if (this.historyEntry && history.state?.mwProfileSheet === this.historyEntry) {
+      history.back();
+      return;
+    }
+    this.sheet.close();
+  }
+
+  #renderGrid(posts = this.posts, { loading = false, message = '' } = {}) {
+    if (!this.grid) return;
+    this.displayPosts = posts;
+    if (loading) {
+      this.grid.replaceChildren(h('p', { class: 'muted center', role: 'status' }, t('loading')));
+    } else if (message) {
+      this.grid.replaceChildren(h('p', { class: 'muted center', role: 'status' }, profileText(message)));
+    } else if (!posts.length) {
+      this.grid.replaceChildren(h('p', { class: 'muted center' }, this.own ? t('noPostsYet') : t('empty')));
+    } else {
+      this.grid.replaceChildren(...posts.map(post => tile(post, {
+        open: () => this.#openPost(post),
+        menu: this.own && post.author_id === auth.userId ? () => this.#postMenu(post) : null,
+      })));
+    }
+  }
+
+  async #selectTab(tab) {
+    this.activeTab = tab;
+    this.tabs?.forEach(button => button.setAttribute('aria-selected', String(button.dataset.profileTab === tab)));
+    const token = this.token;
+    if (tab === 'posts') { this.#renderGrid(); return; }
+    if (tab === 'private') {
+      this.#renderGrid([], { message: !this.own && this.profilePrivate ? t('privateAccount') : t('empty') });
+      return;
+    }
+    if (!this.own) { this.#renderGrid([], { message: t('privateActivity') }); return; }
+
+    this.#renderGrid([], { loading: true });
+    try {
+      const sb = await supabase();
+      let ids = [];
+      if (tab === 'saved') {
+        const result = await api(`${config.api.feed}?action=saved`, { timeout: 12000 });
+        ids = (Array.isArray(result?.saved) ? result.saved : [])
+          .map(item => String(item?.postId || '')).filter(Boolean).slice(0, 100);
+      } else {
+        const { data, error } = await sb.from('mw_signals').select('post_id')
+          .eq('user_id', this.id).eq('kind', 'light').limit(100);
+        if (error) throw error;
+        ids = [...new Set((Array.isArray(data) ? data : []).map(row => String(row?.post_id || '')).filter(Boolean))];
+      }
+      if (token !== this.token || tab !== this.activeTab) return;
+      if (!ids.length) { this.#renderGrid([], { message: tab === 'saved' ? t('noSaved') : t('empty') }); return; }
+      const { data, error } = await sb.from('mw_posts').select(PROFILE_POST_REQUIRED.join(',')).in('id', ids);
+      if (error) throw error;
+      if (token !== this.token || tab !== this.activeTab) return;
+      const byId = new Map((Array.isArray(data) ? data : []).map(row => [String(row.id), normalizeProfilePost(row)]));
+      const posts = ids.map(id => byId.get(id)).filter(Boolean);
+      this.#renderGrid(posts, { message: posts.length ? '' : tab === 'saved' ? t('noSaved') : t('empty') });
+    } catch (error) {
+      if (token === this.token && tab === this.activeTab) this.#renderGrid([], { message: profileText(error?.message) || t('retry') });
+    }
   }
 
   #postMenu(post) {
@@ -153,9 +269,12 @@ export class ProfileView {
     this.pendingPhoto = photo;
     this.id = id;
     this.own = id === auth.userId;
+    this.activeTab = 'posts';
     this.sheet.panel.classList.toggle('profile-sheet-fullscreen', fullscreen);
     this.sheet.title = this.own ? t('me') : (profileText(person?.name || profiles.peek(id)?.name) || t('profile'));
+    this.sheet.panel.setAttribute('aria-label', this.sheet.title);
     this.#render({ profile: person || profiles.peek(id) || { id, name: this.own ? auth.name : '' }, loading: true });
+    this.#pushProfileHistory();
     this.sheet.open();
     this.#load(id);
   }
@@ -179,7 +298,16 @@ export class ProfileView {
       ]);
       if (token !== this.token) return;
       const row = profile.data || {};
-      const person = { id, name: row.display_name || profiles.peek(id)?.name || (this.own ? auth.name : 'MilkyWay'), username: row.username || '', avatar: row.avatar_url || '', bio: row.bio || '', private: Boolean(row.is_private) };
+      const person = {
+        id,
+        name: row.display_name || profiles.peek(id)?.name || (this.own ? auth.name : 'MilkyWay'),
+        username: row.username || '',
+        avatar: row.avatar_url || '',
+        bio: row.bio || '',
+        role: row.role || row.status || '',
+        interests: row.interests || [],
+        private: Boolean(row.is_private),
+      };
       profiles.prime([{ id, name: person.name, username: person.username, avatar: person.avatar }]);
       if (!this.own) this.sheet.title = profileText(person.name) || t('profile');
       const { data: pin } = await quiet(sb.from('mw_creator_pins').select('post_id').eq('creator_id', id).maybeSingle());
@@ -267,18 +395,18 @@ export class ProfileView {
 
   #render({ profile, followers = 0, following = 0, posts = [], loading = false, error = false, postsError = '' }) {
     profile = profile && typeof profile === 'object' ? profile : { id: this.id || auth.userId || '' };
+    this.profilePrivate = Boolean(profile.private);
     this.posts = Array.isArray(posts) ? posts.filter(post => post && typeof post === 'object') : [];
     this.postCount = h('b', {}, count(this.posts.length));
     const stats = h('div', { class: 'profile-stats' },
-      h('span', {}, this.postCount, t('posts')),
+      h('span', {}, h('b', {}, count(following)), t('followingCount')),
       h('span', {}, h('b', {}, count(followers)), t('followers')),
-      h('span', {}, h('b', {}, count(following)), t('followingCount')));
+      h('span', {}, this.postCount, t('posts')));
     const actionsRow = h('div', { class: 'profile-actions' });
     if (this.own) {
       actionsRow.append(
         h('button', { class: 'pill-btn', type: 'button', onclick: () => this.#edit(profile) }, t('editProfile')),
-        h('button', { class: 'pill-btn hot', type: 'button', onclick: () => { this.sheet.close(); this.hooks.openCreate(); } }, t('create')),
-        h('button', { class: 'pill-btn nova-menu-btn', type: 'button', 'aria-label': t('menu'), onclick: () => this.hooks.openMenu?.(profile) }, h('span', { html: icon.gear }), t('menu')));
+        h('button', { class: 'pill-btn hot', type: 'button', onclick: () => { this.sheet.close(); this.hooks.openCreate(); } }, t('create')));
       // Owner-only gold Admin button (shown at once for the owner email; the server checks again on every action).
       if (isOwnerAccount() && !actionsRow.querySelector('.nova-admin-btn')) {
         actionsRow.append(h('button', { class: 'pill-btn nova-admin-btn', type: 'button', onclick: () => {
@@ -302,13 +430,22 @@ export class ProfileView {
     }
 
     const grid = this.grid = h('div', { class: 'profile-grid' });
-    if (loading) grid.append(h('p', { class: 'muted center' }, t('loading')));
-    else if (error || postsError) grid.append(h('p', { class: 'muted center', role: 'status' }, profileText(postsError) || t('retry')));
-    else if (!this.posts.length) grid.append(h('p', { class: 'muted center' }, this.own ? t('noPostsYet') : t('empty')));
-    else grid.append(...this.posts.map(post => tile(post, {
-      open: () => this.#openPost(post),
-      menu: this.own ? () => this.#postMenu(post) : null,
-    })));
+    grid.id = 'profileMediaGrid';
+    const tabItems = [
+      ['posts', t('posts'), '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg>'],
+      ['private', t('privateAccount'), '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10V7a6 6 0 0 1 12 0v3h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2zm2 0h8V7a4 4 0 0 0-8 0zm4 4a2 2 0 0 0-1 3.73V19h2v-1.27A2 2 0 0 0 12 14z"/></svg>'],
+      ['saved', t('savedPosts'), icon.bookmark],
+      ['liked', t('likedPosts'), icon.heart],
+    ];
+    const tabs = this.tabs = h('div', { class: 'profile-tabs', role: 'tablist', 'aria-label': t('profileContent') },
+      ...tabItems.map(([key, label, glyph]) => h('button', {
+        class: 'profile-tab', type: 'button', role: 'tab', 'data-profile-tab': key,
+        'aria-label': label, title: label, 'aria-controls': grid.id, 'aria-selected': String(this.activeTab === key),
+        html: glyph, onclick: () => this.#selectTab(key),
+      })));
+    if (loading) this.#renderGrid([], { loading: true });
+    else if (error || postsError) this.#renderGrid([], { message: profileText(postsError) || t('retry') });
+    else this.#renderGrid();
 
     const profileAvatar = avatar({ ...profile, name: profileText(profile.name) }, 84);
     const avatarControl = this.own
@@ -317,16 +454,35 @@ export class ProfileView {
           profileAvatar, h('i', { class: 'presence-dot', 'aria-hidden': 'true' })))
       : h('span', { class: `presence-avatar${presence.isOnline(profile.id) ? ' online' : ''}`, 'data-presence': profile.id },
         profileAvatar, h('i', { class: 'presence-dot', 'aria-hidden': 'true' }));
+    const toolbar = h('div', { class: 'profile-toolbar', 'data-no-swipe': true },
+      h('div', { class: 'profile-toolbar-group' },
+        h('button', { class: 'profile-icon-btn', type: 'button', 'aria-label': t('back'), title: t('back'), onclick: () => this.close() }, '‹'),
+        h('button', { class: 'profile-icon-btn', type: 'button', 'aria-label': t('followers'), title: t('followers'), html: icon.guests, onclick: () => this.hooks.openFollowers?.(profile) })),
+      h('div', { class: 'profile-toolbar-group' },
+        h('button', { class: 'profile-icon-btn', type: 'button', 'aria-label': t('share'), title: t('share'), html: icon.share, onclick: () => openShare({
+          title: profileText(profile.name) || t('profile'),
+          text: profileText(profile.bio),
+          url: new URL(location.pathname, location.origin).href,
+        }) }),
+        h('button', { class: 'profile-icon-btn', type: 'button', 'aria-label': t('likedPosts'), title: t('likedPosts'), html: icon.heart, onclick: () => this.#selectTab('liked') }),
+        this.own ? h('button', { class: 'profile-icon-btn nova-menu-btn', type: 'button', 'aria-label': t('menu'), title: t('menu'), html: icon.gear, onclick: () => this.hooks.openMenu?.(profile) }) : null,
+        h('button', { class: 'profile-icon-btn profile-close-btn', type: 'button', 'aria-label': t('close'), title: t('close'), html: icon.close, onclick: () => this.close() })));
+    const interests = Array.isArray(profile.interests)
+      ? profile.interests.map(profileText).filter(Boolean)
+      : profileText(profile.interests).split(/[,\n]/).map(value => value.trim()).filter(Boolean);
     this.content.replaceChildren(
+      toolbar,
       h('div', { class: 'profile-head' },
         avatarControl,
         h('div', { class: 'profile-names' },
           h('b', {}, profileText(profile.name)),
           profileText(profile.username) ? h('span', { class: 'muted' }, `@${profileText(profile.username)}`) : null,
+          profileText(profile.role || profile.status) ? h('small', { class: 'profile-role' }, profileText(profile.role || profile.status)) : null,
           profile.private ? h('small', { class: 'muted' }, `🔒 ${t('privateAccount')}`) : null,
           presence.isOnline(profile.id) || (this.own && presence.visible) ? h('small', { class: 'presence-label' }, t('activeNow')) : null)),
       profileText(profile.bio) ? h('p', { class: 'profile-bio' }, profileText(profile.bio)) : null,
-      stats, actionsRow, grid);
+      interests.length ? h('div', { class: 'profile-interests', 'aria-label': 'Interests' }, ...interests.map(value => h('span', {}, value))) : null,
+      stats, actionsRow, tabs, grid);
   }
 
   #edit(profile, { openPicker = false, photo: initialPhoto = null } = {}) {
@@ -475,6 +631,12 @@ function tile(post, { open, menu }) {
     node.append(img);
   } else {
     node.append(h('p', {}, caption.slice(0, 140)));
+  }
+  const rawViews = post?.view_count ?? post?.viewCount ?? post?.views;
+  const views = Number(rawViews);
+  if (rawViews !== undefined && rawViews !== null && rawViews !== '' && Number.isFinite(views) && views >= 0) {
+    node.append(h('span', { class: 'tile-badge tile-views', 'aria-label': `${count(views)} ${t('viewCount')}` },
+      h('span', { html: icon.eye }), count(views)));
   }
   if (post.scheduled_at && Date.parse(post.scheduled_at) > Date.now()) {
     node.append(h('span', { class: 'mw-profile-scheduled' }, t('studioScheduled')));

@@ -50,6 +50,7 @@ const profileView = lazy(() => import('./ui/profile-view.js').then(m => new m.Pr
   requireLogin, openCreate, openComments: post => commentsSheet().then(sheet => sheet.open(post)),
   openMenu: profile => novaMenu().then(menu => menu.open(profile)),
   openChat: person => { if (requireLogin()) inboxView().then(view => view.openWith(person)); },
+  openFollowers: person => followersView().then(view => view.open(person)),
 })));
 const profileSearch = lazy(() => import('./ui/profile-search.js').then(m => new m.ProfileSearch({ openProfile })));
 const composeSheet = lazy(() => import('./ui/compose-sheet.js').then(m => new m.ComposeSheet()));
