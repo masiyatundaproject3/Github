@@ -13,6 +13,11 @@ const MAX_VIDEO = 100 * 1024 * 1024;
 const MAX_AUDIO = 25 * 1024 * 1024;
 const MAX_PHOTOS = 8;
 
+function readableError(error, fallback) {
+  const message = String(error?.message || error || '').replace(/\b(?:null|undefined)\b/gi, '').replace(/\s+/g, ' ').trim();
+  return message || fallback;
+}
+
 async function mapConcurrent(items, limit, run) {
   const results = new Array(items.length);
   let next = 0;
@@ -95,6 +100,7 @@ export class ComposeSheet {
       h('span', { class: 'creator-caption-label' }, t('captionLabel')),
       this.caption, this.captionCount);
     this.creatorDetails = h('div', { class: 'creator-details', hidden: true });
+    this.reviewPanel = h('section', { class: 'creator-review', hidden: true });
     this.modeButtons = [];
     this.scheduleToggle = h('input', { type: 'checkbox', class: 'lc-switch', role: 'switch', onchange: () => this.#paintSchedule() });
     this.scheduleDate = h('input', { class: 'field compose-schedule-date', type: 'datetime-local', disabled: true, 'aria-label': t('studioScheduleTime') });
@@ -105,7 +111,7 @@ export class ComposeSheet {
     const soundButton = h('button', {
       class: 'creator-sound-button', type: 'button',
       onclick: () => this.#openPicker(this.audioInput),
-    }, h('span', { 'aria-hidden': 'true' }, '♫'), t('attachAudio'));
+    }, h('span', { 'aria-hidden': 'true' }, '♫'), t('studioAddSound'));
     const closeButton = h('button', {
       class: 'creator-close', type: 'button', 'aria-label': t('cancel'), title: t('cancel'),
       onclick: () => this.sheet.close(),
@@ -118,8 +124,9 @@ export class ComposeSheet {
     const effectsButton = tool('effects', '✧', t('effects'), () => this.#cycleCameraFilter(effectsButton));
     const timerButton = tool('timer', '◷', t('timer'), () => this.#toggleCaptureTimer(timerButton));
     const moreButton = tool('more', '···', t('moreOptions'), () => {
-      moreButton.classList.toggle('is-active');
-      this.stage.classList.toggle('creator-more-active', moreButton.classList.contains('is-active'));
+      this.#showReview();
+      this.creatorDetails.hidden = false;
+      this.detailsToggle.setAttribute('aria-expanded', 'true');
     });
     const galleryButton = h('button', {
       class: 'creator-gallery', type: 'button', 'aria-label': t('choosePhotosOrVideo'), title: t('choosePhotosOrVideo'),
@@ -159,6 +166,10 @@ export class ComposeSheet {
         detailsToggle.setAttribute('aria-expanded', String(!this.creatorDetails.hidden));
       },
     }, t('moreOptions'));
+    this.detailsToggle = detailsToggle;
+    const reviewBack = h('button', {
+      class: 'creator-review-back', type: 'button', onclick: () => this.#backToCamera(),
+    }, `‹ ${t('camera')}`);
     const cameraViewButton = h('button', {
       class: 'creator-view-mode is-selected', type: 'button', 'aria-pressed': 'true',
       onclick: () => {
@@ -178,7 +189,6 @@ export class ComposeSheet {
         cameraViewButton.classList.remove('is-selected');
         cameraViewButton.setAttribute('aria-pressed', 'false');
         this.#setCaptureMode('text');
-        this.creatorDetails.hidden = false;
         this.caption.focus({ preventScroll: true });
       },
     }, t('create'));
@@ -190,9 +200,17 @@ export class ComposeSheet {
         h('b', {}, t('studioSchedulePost')),
         h('small', { class: 'muted' }, t('studioScheduleHint'))),
       this.scheduleToggle);
-    this.sheet.body.append(h('form', {
+    this.reviewPanel.append(
+      h('header', { class: 'creator-review-head' }, reviewBack, h('strong', {}, t('newPost'))),
+      this.captionWrap,
+      this.audioBar,
+      detailsToggle,
+      this.creatorDetails,
+      h('div', { class: 'creator-submit-area' }, this.submit, this.message));
+    this.form = h('form', {
       class: 'compose-form creator-form',
       onsubmit: event => { event.preventDefault(); this.#publish(); },
+      dataset: { view: 'camera' },
     },
     h('header', { class: 'creator-header' }, closeButton, soundButton, h('span', { class: 'creator-header-spacer', 'aria-hidden': 'true' })),
     this.mediaInput, this.audioInput,
@@ -201,12 +219,9 @@ export class ComposeSheet {
       h('aside', { class: 'creator-tool-rail', 'aria-label': t('camera') }, flipButton, flashButton, effectsButton, timerButton, moreButton)),
     modeRow,
     h('div', { class: 'creator-capture-row' }, galleryButton, this.shutter, effectsShortcut),
-    this.captionWrap,
-    this.audioBar,
-    detailsToggle,
-    this.creatorDetails,
     h('div', { class: 'creator-bottom-switch', role: 'group', 'aria-label': t('create') }, cameraViewButton, createViewButton),
-    h('div', { class: 'creator-submit-area' }, this.submit, this.message)));
+    this.reviewPanel);
+    this.sheet.body.append(this.form);
     this.creatorDetails.append(
       h('div', { class: 'compose-assist' }, this.assist, this.style),
       h('section', { class: 'compose-card compose-schedule-card' }, scheduleLabel, this.scheduleDateWrap));
@@ -223,10 +238,12 @@ export class ComposeSheet {
     this.scheduleDate.max = new Date(latest.getTime() - latest.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     this.#paintSchedule();
     this.creatorDetails.hidden = true;
+    this.detailsToggle.setAttribute('aria-expanded', 'false');
+    this.reviewPanel.hidden = true;
+    this.form.dataset.view = 'camera';
     this.audioBar.hidden = !this.audioFile;
     this.stage.dataset.filter = '0';
     this.stage.dataset.timer = '';
-    this.stage.classList.remove('creator-more-active');
     Object.values(this.cameraToolButtons).forEach(button => button.classList.remove('is-active'));
     this.viewModeButtons.camera.classList.add('is-selected');
     this.viewModeButtons.camera.setAttribute('aria-pressed', 'true');
@@ -242,6 +259,18 @@ export class ComposeSheet {
     this.stage.classList.remove('has-media');
     this.sheet.open();
     void this.#startCamera();
+  }
+
+  #showReview() {
+    if (this.captureMode === 'text') this.reviewPanel.insertBefore(this.captionWrap, this.audioBar);
+    this.form.dataset.view = 'review';
+    this.reviewPanel.hidden = false;
+  }
+
+  #backToCamera() {
+    this.form.dataset.view = 'camera';
+    this.reviewPanel.hidden = true;
+    if (this.captureMode === 'text') this.textStage.append(this.captionWrap);
   }
 
   async #startCamera() {
@@ -299,7 +328,7 @@ export class ComposeSheet {
     this.stage.classList.toggle('is-text-mode', mode === 'text');
     this.textStage.hidden = mode !== 'text';
     if (mode === 'text') this.textStage.append(this.captionWrap);
-    else this.creatorDetails.before(this.captionWrap);
+    else this.reviewPanel.insertBefore(this.captionWrap, this.audioBar);
     if (this.shutter) {
       this.shutter.setAttribute('aria-label', mode === 'video' ? t('recordVideo') : t('camera'));
       this.shutter.classList.toggle('video-mode', mode === 'video');
@@ -345,7 +374,8 @@ export class ComposeSheet {
 
   async #capture() {
     if (this.captureMode === 'text') {
-      this.caption.focus({ preventScroll: true });
+      if (this.caption.value.trim()) this.#showReview();
+      else this.caption.focus({ preventScroll: true });
       return;
     }
     if (!this.cameraStream) {
@@ -441,7 +471,10 @@ export class ComposeSheet {
 
   #openPicker(input) {
     try { openFilePicker(input); }
-    catch (error) { this.message.textContent = error?.message || t('mediaPickerUnavailable'); }
+    catch (error) {
+      this.message.textContent = readableError(error, t('mediaPickerUnavailable'));
+      this.#showReview();
+    }
   }
 
   #releaseMedia(invalidate = true) {
@@ -462,7 +495,11 @@ export class ComposeSheet {
     if (!this.publishing && !this.audioPending) this.submit.disabled = false;
     this.mediaInput.value = '';
     this.preview.replaceChildren();
-    if (!files.length) return;
+    if (!files.length) {
+      if (!this.audioFile) this.#backToCamera();
+      return;
+    }
+    this.#showReview();
     this.message.textContent = t('loading');
     this.mediaPending = true;
     this.submit.disabled = true;
@@ -470,7 +507,7 @@ export class ComposeSheet {
     try {
       entries = await Promise.all(files.map(async file => ({ file, ...(await identifyMediaFile(file)) })));
     } catch (error) {
-      if (selection === this.mediaSelection) this.message.textContent = error?.message || t('mediaType');
+      if (selection === this.mediaSelection) this.message.textContent = readableError(error, t('mediaType'));
       return;
     } finally {
       if (selection === this.mediaSelection) {
@@ -492,7 +529,7 @@ export class ComposeSheet {
       this.files = entries.map(entry => ({ ...entry, url: URL.createObjectURL(entry.file) }));
     } catch (error) {
       this.#releaseMedia(false);
-      this.message.textContent = error?.message || t('mediaPickerUnavailable');
+      this.message.textContent = readableError(error, t('mediaPickerUnavailable'));
       return;
     }
     this.message.textContent = '';
@@ -506,6 +543,7 @@ export class ComposeSheet {
         h('button', { class: 'link', type: 'button', 'aria-label': `${t('remove')} ${index + 1}`, onclick: () => this.#removePhoto(index) }, t('remove'))));
     }
     if (!video && files.length > 1) this.preview.prepend(h('small', { class: 'muted compose-count' }, `${files.length} ${t('photosInSlideshow')}`));
+    this.#showReview();
   }
 
   #removePhoto(index) {
@@ -525,12 +563,13 @@ export class ComposeSheet {
     this.audioPreview.replaceChildren();
     this.audioBar.hidden = !file;
     if (!file) return;
+    this.#showReview();
     this.audioPending = true;
     this.submit.disabled = true;
     let info;
     try { info = await identifyMediaFile(file); }
     catch (error) {
-      if (selection === this.audioSelection) this.message.textContent = error?.message || t('audioFileOnly');
+      if (selection === this.audioSelection) this.message.textContent = readableError(error, t('audioFileOnly'));
       return;
     } finally {
       if (selection === this.audioSelection) {
@@ -545,12 +584,13 @@ export class ComposeSheet {
     try { this.audioUrl = URL.createObjectURL(file); }
     catch (error) {
       this.audioFile = null;
-      this.message.textContent = error?.message || t('mediaPickerUnavailable');
+      this.message.textContent = readableError(error, t('mediaPickerUnavailable'));
       return;
     }
     this.audioPreview.append(h('audio', { src: this.audioUrl, controls: true, preload: 'metadata' }),
       h('button', { class: 'link', type: 'button', onclick: () => this.#pickAudio(null) }, t('remove')));
     this.message.textContent = '';
+    this.#showReview();
   }
 
   async #autoStyle() {
