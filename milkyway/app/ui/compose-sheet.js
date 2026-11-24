@@ -101,6 +101,8 @@ export class ComposeSheet {
       this.caption, this.captionCount);
     this.creatorDetails = h('div', { class: 'creator-details', hidden: true });
     this.reviewPanel = h('section', { class: 'creator-review', hidden: true });
+    this.createHub = h('section', { class: 'creator-hub', hidden: true });
+    this.autoStyleNextSelection = false;
     this.modeButtons = [];
     this.scheduleToggle = h('input', { type: 'checkbox', class: 'lc-switch', role: 'switch', onchange: () => this.#paintSchedule() });
     this.scheduleDate = h('input', { class: 'field compose-schedule-date', type: 'datetime-local', disabled: true, 'aria-label': t('studioScheduleTime') });
@@ -141,16 +143,16 @@ export class ComposeSheet {
       onclick: () => this.#cycleCameraFilter(effectsButton),
     }, '✧');
     const captureModes = [
-      ['10m', 'video', 600_000],
-      ['60s', 'video', 60_000],
-      ['15s', 'video', 15_000],
       [t('photo'), 'photo', 0],
-      [t('textMode'), 'text', 0],
+      [t('studioVideo15'), 'video', 15_000],
+      [t('studioVideo60'), 'video', 60_000],
+      [t('studioVideo10m'), 'video', 600_000],
     ];
     const modeRow = h('div', { class: 'creator-mode-row', role: 'group', 'aria-label': t('camera') },
-      ...captureModes.map(([label, mode, duration], index) => {
+      ...captureModes.map(([label, mode, duration]) => {
         const button = h('button', {
-          class: 'creator-mode', type: 'button', 'aria-pressed': String(mode === 'photo' && index === 3),
+          class: 'creator-mode', type: 'button', 'aria-pressed': String(mode === 'photo'),
+          dataset: { mode, duration: String(duration) },
           onclick: () => {
             this.captureDuration = duration;
             this.#setCaptureMode(mode, button);
@@ -159,6 +161,80 @@ export class ComposeSheet {
         this.modeButtons.push(button);
         return button;
       }));
+    const createTool = (label, symbol, handler) => h('button', {
+      class: 'creator-hub-tool', type: 'button', onclick: handler,
+    }, h('span', { 'aria-hidden': 'true' }, symbol), h('b', {}, label));
+    const openMediaForAutoCut = () => {
+      this.autoStyleNextSelection = true;
+      this.#openPicker(this.mediaInput);
+    };
+    const templateFilters = [
+      ['all', t('studioTemplateFilterAll')],
+      ['motion', t('studioTemplateFilterMotion')],
+      ['cinematic', t('studioTemplateFilterCinematic')],
+      ['classic', t('studioTemplateFilterClassic')],
+    ];
+    const templateFilterButtons = [];
+    const templateStyles = [
+      ['fade', 'motion', t('styleFade')],
+      ['zoom', 'motion', t('styleZoom')],
+      ['cinema', 'cinematic', t('styleCinema')],
+      ['page', 'classic', t('stylePage')],
+      ['slide', 'classic', t('styleSlide')],
+    ];
+    const templateGrid = h('div', { class: 'creator-template-grid' },
+      ...templateStyles.map(([style, category, label]) => {
+        const button = h('button', {
+          class: 'creator-template', type: 'button', dataset: { category, style },
+          'aria-pressed': String(this.style.value === style),
+          onclick: () => {
+            this.style.value = style;
+            templateGrid.querySelectorAll('.creator-template').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+            this.message.textContent = '';
+          },
+        }, h('span', { class: `creator-template-preview style-${style}`, 'aria-hidden': 'true' }, '✦'), h('small', {}, label));
+        return button;
+      }));
+    const templateFilter = h('div', { class: 'creator-template-filters', role: 'group', 'aria-label': t('studioTemplateFilterAll') },
+      ...templateFilters.map(([category, label], index) => {
+        const button = h('button', {
+          class: `creator-template-filter${index === 0 ? ' is-selected' : ''}`, type: 'button',
+          'aria-pressed': String(index === 0),
+          onclick: () => {
+            templateFilterButtons.forEach(filter => {
+              const selected = filter === button;
+              filter.classList.toggle('is-selected', selected);
+              filter.setAttribute('aria-pressed', String(selected));
+            });
+            templateGrid.querySelectorAll('.creator-template').forEach(template => {
+              template.hidden = category !== 'all' && template.dataset.category !== category;
+            });
+          },
+        }, label);
+        templateFilterButtons.push(button);
+        return button;
+      }));
+    const templatesSection = h('section', { class: 'creator-templates' },
+      h('h3', {}, t('studioTemplates')), templateFilter, templateGrid);
+    const liveShortcut = h('button', {
+      class: 'creator-live-shortcut', type: 'button', onclick: () => {
+        this.sheet.close();
+        document.querySelector('#liveEntry')?.click();
+      },
+    }, h('span', { 'aria-hidden': 'true' }, '●'), t('studioLiveShortcut'));
+    const openAudioPicker = () => this.#openPicker(this.audioInput);
+    this.createHub.append(
+      h('h2', {}, t('create')),
+      h('div', { class: 'creator-hub-tools' },
+        createTool(t('studioPhotoEditor'), '✧', () => this.#openPicker(this.mediaInput)),
+        createTool(t('studioAutoCut'), '▧', openMediaForAutoCut),
+        createTool(t('studioCaptions'), 'Aa', () => {
+          this.#showReview();
+          this.caption.focus({ preventScroll: true });
+        }),
+        createTool(t('studioAudio'), '♫', openAudioPicker),
+        createTool(t('studioNewMedia'), '+', () => this.#openPicker(this.mediaInput))),
+      templatesSection);
     const detailsToggle = h('button', {
       class: 'creator-details-toggle', type: 'button', 'aria-expanded': 'false',
       onclick: () => {
@@ -168,28 +244,36 @@ export class ComposeSheet {
     }, t('moreOptions'));
     this.detailsToggle = detailsToggle;
     const reviewBack = h('button', {
-      class: 'creator-review-back', type: 'button', onclick: () => this.#backToCamera(),
-    }, `‹ ${t('camera')}`);
+      class: 'creator-review-back', type: 'button', onclick: () => this.#discardCapture(),
+    }, `‹ ${t('studioDiscardRetake')}`);
+    this.reviewBackButton = reviewBack;
     const cameraViewButton = h('button', {
       class: 'creator-view-mode is-selected', type: 'button', 'aria-pressed': 'true',
       onclick: () => {
+        this.form.dataset.mode = 'camera';
+        this.createHub.hidden = true;
         cameraViewButton.classList.add('is-selected');
         cameraViewButton.setAttribute('aria-pressed', 'true');
         createViewButton.classList.remove('is-selected');
         createViewButton.setAttribute('aria-pressed', 'false');
         this.captureDuration = 0;
         this.#setCaptureMode('photo');
+        this.form.dataset.view = 'camera';
+        this.reviewPanel.hidden = true;
       },
     }, t('camera'));
     const createViewButton = h('button', {
       class: 'creator-view-mode', type: 'button', 'aria-pressed': 'false',
       onclick: () => {
+        this.form.dataset.mode = 'create';
+        this.createHub.hidden = false;
         createViewButton.classList.add('is-selected');
         createViewButton.setAttribute('aria-pressed', 'true');
         cameraViewButton.classList.remove('is-selected');
         cameraViewButton.setAttribute('aria-pressed', 'false');
-        this.#setCaptureMode('text');
-        this.caption.focus({ preventScroll: true });
+        this.form.dataset.view = 'camera';
+        this.reviewPanel.hidden = true;
+        this.#setCaptureMode('photo');
       },
     }, t('create'));
     this.viewModeButtons = { camera: cameraViewButton, create: createViewButton };
@@ -201,7 +285,7 @@ export class ComposeSheet {
         h('small', { class: 'muted' }, t('studioScheduleHint'))),
       this.scheduleToggle);
     this.reviewPanel.append(
-      h('header', { class: 'creator-review-head' }, reviewBack, h('strong', {}, t('newPost'))),
+      h('header', { class: 'creator-review-head' }, reviewBack, h('strong', {}, t('studioReview'))),
       this.captionWrap,
       this.audioBar,
       detailsToggle,
@@ -217,9 +301,11 @@ export class ComposeSheet {
     h('div', { class: 'creator-stage-wrap' },
       this.stage, this.textStage, this.stageMessage,
       h('aside', { class: 'creator-tool-rail', 'aria-label': t('camera') }, flipButton, flashButton, effectsButton, timerButton, moreButton)),
+    this.createHub,
     modeRow,
     h('div', { class: 'creator-capture-row' }, galleryButton, this.shutter, effectsShortcut),
-    h('div', { class: 'creator-bottom-switch', role: 'group', 'aria-label': t('create') }, cameraViewButton, createViewButton),
+    h('div', { class: 'creator-bottom-dock' }, liveShortcut,
+      h('div', { class: 'creator-bottom-switch', role: 'group', 'aria-label': t('create') }, cameraViewButton, createViewButton)),
     this.reviewPanel);
     this.sheet.body.append(this.form);
     this.creatorDetails.append(
@@ -241,6 +327,9 @@ export class ComposeSheet {
     this.detailsToggle.setAttribute('aria-expanded', 'false');
     this.reviewPanel.hidden = true;
     this.form.dataset.view = 'camera';
+    this.form.dataset.mode = 'camera';
+    this.autoStyleNextSelection = false;
+    this.createHub.hidden = true;
     this.audioBar.hidden = !this.audioFile;
     this.stage.dataset.filter = '0';
     this.stage.dataset.timer = '';
@@ -262,15 +351,27 @@ export class ComposeSheet {
   }
 
   #showReview() {
+    if (this.form.dataset.view !== 'review') this.reviewReturnMode = this.form.dataset.mode || 'camera';
+    this.reviewBackButton.textContent = `‹ ${t(this.files.length ? 'studioDiscardRetake' : 'studioBackToStudio')}`;
     if (this.captureMode === 'text') this.reviewPanel.insertBefore(this.captionWrap, this.audioBar);
     this.form.dataset.view = 'review';
     this.reviewPanel.hidden = false;
+    this.createHub.hidden = true;
   }
 
   #backToCamera() {
+    this.form.dataset.mode = this.reviewReturnMode === 'create' ? 'create' : 'camera';
     this.form.dataset.view = 'camera';
     this.reviewPanel.hidden = true;
+    this.createHub.hidden = this.form.dataset.mode !== 'create';
     if (this.captureMode === 'text') this.textStage.append(this.captionWrap);
+  }
+
+  #discardCapture() {
+    this.#releaseMedia();
+    this.stageMessage.textContent = '';
+    this.message.textContent = '';
+    this.#backToCamera();
   }
 
   async #startCamera() {
@@ -333,8 +434,12 @@ export class ComposeSheet {
       this.shutter.setAttribute('aria-label', mode === 'video' ? t('recordVideo') : t('camera'));
       this.shutter.classList.toggle('video-mode', mode === 'video');
     }
-    const defaultButton = this.modeButtons.find(button => button.textContent === t(mode === 'text' ? 'textMode' : 'photo'));
-    this.modeButtons.forEach(button => button.setAttribute('aria-pressed', String(button === selectedButton || button === defaultButton)));
+    this.modeButtons.forEach(button => {
+      const active = selectedButton
+        ? button === selectedButton
+        : button.dataset.mode === mode && (mode !== 'video' || Number(button.dataset.duration) === this.captureDuration);
+      button.setAttribute('aria-pressed', String(active));
+    });
   }
 
   async #flipCamera() {
@@ -472,6 +577,7 @@ export class ComposeSheet {
   #openPicker(input) {
     try { openFilePicker(input); }
     catch (error) {
+      if (input === this.mediaInput) this.autoStyleNextSelection = false;
       this.message.textContent = readableError(error, t('mediaPickerUnavailable'));
       this.#showReview();
     }
@@ -490,6 +596,8 @@ export class ComposeSheet {
 
   async #pickMedia(files) {
     const selection = ++this.mediaSelection;
+    const applyAutoStyle = this.autoStyleNextSelection;
+    this.autoStyleNextSelection = false;
     this.#releaseMedia(false);
     this.mediaPending = false;
     if (!this.publishing && !this.audioPending) this.submit.disabled = false;
@@ -544,6 +652,10 @@ export class ComposeSheet {
     }
     if (!video && files.length > 1) this.preview.prepend(h('small', { class: 'muted compose-count' }, `${files.length} ${t('photosInSlideshow')}`));
     this.#showReview();
+    if (applyAutoStyle) {
+      if (!video && this.files.length > 1) await this.#autoStyle();
+      else this.message.textContent = t('pickSlideshowFirst');
+    }
   }
 
   #removePhoto(index) {
