@@ -81,6 +81,7 @@ function openPost(post) {
 const discoveryView = lazy(() => import('./ui/discovery-view.js').then(m => new m.DiscoveryView($('exploreView'), { openProfile, openPost })));
 const liveView = lazy(() => import('./ui/live-view.js').then(m => new m.LiveView($('liveView'), {
   requireLogin, openProfile, onClose: () => showHome(),
+  openStudio: view => composeSheet().then(sheet => sheet.open(view)),
   openGifts: target => giftTray().then(tray => tray.open(target)),
 })));
 

@@ -43,7 +43,7 @@ function liveChrome({ host = false } = {}) {
   const name = h('b', { class: 'live-host-name' });
   const follow = h('button', { class: 'live-follow', type: 'button', 'data-act': 'follow' }, t('follow'));
   const viewers = h(host ? 'button' : 'span', { class: 'live-viewers', ...(host ? { type: 'button', 'data-act': 'viewers', 'aria-label': t('viewersTitle') } : {}) }, h('span', { html: icon.eye }), h('b', {}, '0'));
-  const close = h('button', { class: 'icon-btn live-close', type: 'button', 'data-act': host ? 'end' : 'close', 'aria-label': host ? t('end') : 'Close', html: host ? '' : icon.close }, host ? t('end') : '');
+  const close = h('button', { class: 'icon-btn live-close', type: 'button', 'data-act': host ? 'end' : 'close', 'aria-label': host ? t('end') : t('close'), html: icon.close });
   const cover = h('div', { class: 'live-cover' }, h('span', { class: 'avatar live-cover-avatar', style: '--s:96px' }), h('p', { class: 'live-cover-title' }), h('span', { class: 'live-badge' }, t('live')));
   const background = h('div', { class: 'live-host-background', hidden: true, 'aria-hidden': 'true' },
     h('img', { class: 'live-host-background-image', alt: '', hidden: true }),
@@ -52,6 +52,7 @@ function liveChrome({ host = false } = {}) {
   const guests = h('div', { class: 'live-guests' });
   // Host cell + allocated guest seats share one grid, including seats that have not been filled yet.
   const hostLabel = h('span', { class: 'live-cell-name' });
+  if (host) hostLabel.dataset.role = t('host');
   const hostCell = h('div', { class: 'live-host-cell' }, background, cover, stage, hostLabel);
   const grid = h('div', { class: 'live-grid', 'data-tiles': '1' }, hostCell, guests);
   // Host only: real-time list of viewers asking to join, with one-tap Approve / Reject.
@@ -89,16 +90,27 @@ function liveChrome({ host = false } = {}) {
   const giftBtn = h('button', { class: 'icon-btn gift', type: 'button', 'data-act': 'gift', 'data-no-swipe': true, 'aria-label': t('gift'), title: t('gift'), html: icon.gift });
   const likeBtn = h('button', { class: 'icon-btn like', type: 'button', 'data-act': 'like', 'aria-label': 'Like', html: icon.heart });
   const bar = h('div', { class: 'live-bar' }, form,
-    ...(host
-      ? [h('button', { class: 'icon-btn has-badge', type: 'button', 'data-act': 'guests', 'aria-label': t('guests'), title: t('guests'), html: icon.guests }, seatCount, guestsBadge),
-         h('button', { class: 'icon-btn', type: 'button', 'data-act': 'moderation', 'aria-label': t('moderation'), title: t('moderation'), html: icon.shield }),
-         h('button', { class: 'icon-btn', type: 'button', 'data-act': 'settings', 'aria-label': t('liveSettings'), title: t('liveSettings'), html: icon.gear })]
-      : [stageBtn, giftBtn, likeBtn]),
-    h('button', { class: 'icon-btn', type: 'button', 'data-act': 'share', 'aria-label': t('share'), html: icon.share }));
+    ...(host ? [] : [stageBtn, giftBtn, likeBtn,
+      h('button', { class: 'icon-btn', type: 'button', 'data-act': 'share', 'aria-label': t('share'), html: icon.share })]));
+  const hostAction = (act, label, symbol, attributes = {}) => h('button', {
+    class: 'live-host-action', type: 'button', 'data-act': act, 'aria-label': label, ...attributes,
+  }, h('span', { 'aria-hidden': 'true', ...(symbol.startsWith('<svg') ? { html: symbol } : {}) }, symbol.startsWith('<svg') ? '' : symbol),
+  h('small', {}, label));
+  const hostActions = host ? h('nav', { class: 'live-host-actions', 'data-no-swipe': true, 'aria-label': t('liveControls') },
+    hostAction('voice', t('effects'), '✦'),
+    h('div', { class: 'live-host-guests-action' }, hostAction('multi-guest', t('multiGuest'), icon.guests), seatCount, guestsBadge),
+    hostAction('comments-toggle', t('comments2'), '▤', { 'aria-pressed': 'false' }),
+    hostAction('share', t('share'), icon.share),
+    hostAction('beautify', t('beautify'), '✧', { 'aria-pressed': 'false' }),
+    hostAction('settings', t('moreOptions'), '···')) : null;
+  const hostNotices = host ? h('aside', { class: 'live-host-notices' },
+    h('button', { class: 'live-guideline', type: 'button', 'data-act': 'moderation' }, 'ⓘ ', t('liveGuidelines')),
+    h('div', { class: 'live-viewer-notice' }, h('span', {}, t('liveViewerNotice')),
+      h('button', { type: 'button', 'aria-label': t('dismiss'), onclick: event => event.currentTarget.parentElement.remove() }, '×'))) : null;
   const top = h('div', { class: 'live-top' },
     h('div', { class: 'live-host', 'data-act': 'profile' }, avatarNode, h('div', {}, name, h('small', { class: 'live-tag' }, t('live'))), host ? null : follow),
     viewers, close);
-  const node = h('section', { class: 'slide live-slide' }, grid, brandMark('live'), h('div', { class: 'shade' }), resting, top, tools, pinned, comments, hearts, banner, state, host ? requests : null, bar);
+  const node = h('section', { class: 'slide live-slide' }, grid, brandMark('live'), h('div', { class: 'shade' }), resting, top, tools, pinned, comments, hearts, banner, state, host ? requests : null, hostNotices, hostActions, bar);
   node._refs = { avatarNode, name, follow, viewers: viewers.querySelector('b'), viewersWrap: viewers, cover, background, stage, guests, grid, hostLabel, requests, pinned, comments, hearts, banner, state, resting, input, form, tools, micBtn, voiceBtn, camBtn, stageBtn, stageLabel, giftBtn, likeBtn, guestsBadge, seatCount };
   // Re-arrange the grid whenever a guest tile appears or leaves (tiles come from both room status and video tracks).
   new MutationObserver(() => layoutGrid(node)).observe(guests, { childList: true });
@@ -559,6 +571,10 @@ export class LiveView {
     this.viewerGraceTimer = 0;
     this.viewerRestingSlide = null;
     this.viewerGraceExpired = false;
+    this.goPreviewStream = null;
+    this.goPreviewRequest = 0;
+    this.goPreviewVideo = null;
+    this.goPreviewError = null;
     this.surface = h('div', { class: 'live-pager', tabindex: '0', 'aria-label': 'LIVE' });
     this.empty = h('div', { class: 'live-empty', hidden: true },
       h('p', {}, t('noLives')),
@@ -830,47 +846,203 @@ export class LiveView {
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) { toast(t('cameraNeeded')); return; }
     this.goSheet ||= this.#buildGoLiveSheet();
     this.goSheet.open();
+    void this.#startGoLivePreview();
   }
 
-  // Compact, TikTok-style setup card: avatar + slim title on the top row, Video/Audio toggle pills on their own row
-  // below it, guest and comment options as small grid chips, and one slim gradient Start button. No tall form, no spacers.
+  async #startGoLivePreview() {
+    if (!this.goPreviewVideo || this.goPreviewStream || !this.goSheet?.isOpen || this.goMode === 'audio') return;
+    const request = ++this.goPreviewRequest;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: this.goFacing || 'user' } });
+      if (request !== this.goPreviewRequest || !this.goSheet?.isOpen || this.goMode === 'audio') {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      this.goPreviewStream = stream;
+      this.goPreviewVideo.srcObject = stream;
+      await this.goPreviewVideo.play();
+      this.goPreviewError.textContent = '';
+    } catch (error) {
+      if (request === this.goPreviewRequest) {
+        this.goPreviewError.textContent = String(error?.message || t('cameraNeeded')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('cameraNeeded');
+      }
+    }
+  }
+
+  #stopGoLivePreview() {
+    this.goPreviewRequest++;
+    this.goPreviewStream?.getTracks().forEach(track => track.stop());
+    this.goPreviewStream = null;
+    if (this.goPreviewVideo) this.goPreviewVideo.srcObject = null;
+  }
+
+  async #flipGoLivePreview() {
+    this.goFacing = this.goFacing === 'user' ? 'environment' : 'user';
+    this.#stopGoLivePreview();
+    await this.#startGoLivePreview();
+  }
+
   #buildGoLiveSheet() {
-    const sheet = new Sheet({ title: t('goLive'), className: 'go-live-sheet' });
+    const sheet = new Sheet({
+      title: t('goLive'), className: 'go-live-sheet',
+      onClose: () => this.#stopGoLivePreview(), autoFocus: false,
+    });
     sheet.panel.setAttribute('aria-label', t('goLive'));
-    const me = { id: auth.userId, name: auth.name, avatar: profiles.peek(auth.userId)?.avatar || '' };
+    this.goFacing = 'user';
+    this.goMode = 'video';
+    let admission = 'approval';
+    let comments = 'everyone';
+    let layout = 9;
+    let layoutStyle = 'fullscreen';
+    let scope = 'public';
+    this.goPreviewVideo = h('video', { class: 'gl-preview-video', autoplay: true, muted: true, playsinline: true, 'aria-label': t('camera') });
+    this.goPreviewError = h('p', { class: 'gl-preview-error', role: 'status', 'aria-live': 'polite' });
+    const close = h('button', { class: 'gl-close', type: 'button', 'aria-label': t('close'), onclick: () => sheet.close() }, '×');
+    const rewards = h('button', { class: 'gl-rewards', type: 'button', onclick: () => toast(t('soon')) }, '✦ ', t('liveRewards'));
+    const statusIcons = h('div', { class: 'gl-status-actions' },
+      h('button', { type: 'button', 'aria-label': t('liveMissions'), onclick: () => toast(t('soon')) }, '◎'),
+      h('button', { type: 'button', 'aria-label': t('liveSettings'), onclick: () => { details.hidden = !details.hidden; } }, '⚙'));
+    const mission = h('aside', { class: 'gl-mission' },
+      h('span', { 'aria-hidden': 'true' }, '✦'), h('span', {}, t('liveMissionHint')),
+      h('button', { type: 'button', 'aria-label': t('dismiss'), onclick: () => mission.remove() }, '×'));
+    const flip = h('button', { class: 'gl-preview-flip', type: 'button', 'aria-label': t('flipCamera'), onclick: () => { void this.#flipGoLivePreview(); } }, icon.flip);
+    const beautify = h('button', { class: 'gl-preview-beautify', type: 'button', 'aria-pressed': 'false', onclick: () => {
+      const active = beautify.getAttribute('aria-pressed') !== 'true';
+      beautify.setAttribute('aria-pressed', String(active));
+      sheet.panel.classList.toggle('beautified', active);
+    } }, '✧ ', t('beautify'));
+    const effects = h('button', { class: 'gl-preview-effects', type: 'button', 'aria-pressed': 'false', onclick: () => {
+      const active = effects.getAttribute('aria-pressed') !== 'true';
+      effects.setAttribute('aria-pressed', String(active));
+      sheet.panel.classList.toggle('effects-on', active);
+    } }, '✦ ', t('effects'));
+    const tool = (label, symbol, handler) => h('button', {
+      class: 'gl-tool', type: 'button', 'aria-label': label, onclick: handler,
+    }, h('span', { 'aria-hidden': 'true' }, symbol), h('small', {}, label));
+    const toolRows = h('div', { class: 'gl-tool-grid' },
+      tool(t('flipCamera'), '↻', () => { void this.#flipGoLivePreview(); }),
+      tool(t('beautify'), '✧', () => beautify.click()),
+      tool(t('effects'), '✦', () => effects.click()),
+      tool(t('liveSettings'), '⚙', () => { details.hidden = !details.hidden; }),
+      tool(t('multiGuest'), '♧', () => guestSheet.open()),
+      tool(t('servicePlus'), '✚', () => toast(t('soon'))),
+      tool(t('fanClub'), '♕', () => toast(t('soon'))),
+      tool(t('interact'), '♡', () => toast(t('soon'))),
+      tool(t('share'), '↗', () => toast(t('soon'))),
+      tool(t('promote'), '↟', () => toast(t('soon'))));
     const title = h('input', { class: 'gl-title', type: 'text', maxlength: '80', placeholder: t('liveTitle'), 'aria-label': t('liveTitle'), enterkeyhint: 'go' });
-    // A row of small single-choice pills/chips; returns the group with a .value getter.
-    const choices = (className, label, options, iconFor) => {
-      let value = options[0][0];
-      const buttons = options.map(([key, text]) => h('button', {
-        class: 'gl-chip', type: 'button', role: 'radio', 'data-value': key,
-        onclick: () => { value = key; paint(); },
-      }, iconFor ? h('span', { html: iconFor(key), 'aria-hidden': 'true' }) : null, text));
-      const paint = () => buttons.forEach(button => {
-        const on = button.dataset.value === value;
-        button.classList.toggle('on', on);
-        button.setAttribute('aria-checked', String(on));
-      });
-      paint();
-      const group = h('div', { class: className, role: 'radiogroup', 'aria-label': label }, ...buttons);
-      Object.defineProperty(group, 'value', { get: () => value });
-      return group;
-    };
-    const mode = choices('gl-modes', t('goLive'), [['video', t('video')], ['audio', t('audio')]], key => key === 'video' ? icon.camera : icon.mic);
-    const guests = choices('gl-grid', t('admission'), [['approval', t('admissionApproval')], ['open', t('admissionDirect')], ['broadcast', t('admissionOff')]]);
-    const comments = choices('gl-grid', t('comments2'), [['everyone', t('commentsEveryone')], ['followers', t('commentsFollowers')], ['off', t('commentsOff')]]);
-    const group = (emoji, label, node) => h('div', { class: 'gl-group' }, h('small', { class: 'gl-label' }, h('span', { 'aria-hidden': 'true' }, emoji), label), node);
+    const goalInput = h('input', { class: 'gl-goal-input', type: 'text', maxlength: '80', placeholder: t('liveGoalPlaceholder'), 'aria-label': t('liveGoalPlaceholder'), hidden: true });
+    const goal = h('button', { class: 'gl-goal-button', type: 'button', onclick: () => {
+      goalInput.hidden = !goalInput.hidden;
+      if (!goalInput.hidden) goalInput.focus({ preventScroll: true });
+    } }, '◎ ', t('liveGoal'));
+    const titleRow = h('div', { class: 'gl-title-row' }, title, goal);
     const start = h('button', { class: 'gl-start', type: 'submit' }, h('i', { class: 'gl-dot', 'aria-hidden': 'true' }), t('goLive'));
-    sheet.body.append(h('form', { class: 'gl-form', onsubmit: event => {
+    const modes = [
+      ['audio', t('voiceChat'), icon.mic],
+      ['video', t('deviceCamera'), icon.camera],
+      ['gaming', t('mobileGaming'), '▣'],
+      ['video', t('live'), '●'],
+    ];
+    const modeButtons = [];
+    const modeRow = h('div', { class: 'gl-mode-row', role: 'group', 'aria-label': t('goLive') },
+      ...modes.map(([value, label, symbol], index) => {
+        const button = h('button', { class: `gl-mode${index === 3 ? ' is-selected' : ''}`, type: 'button', 'aria-pressed': String(index === 3), onclick: () => {
+          if (value === 'gaming') { toast(t('liveFeatureUnavailable')); return; }
+          this.goMode = value;
+          modeButtons.forEach(item => {
+            const selected = item === button;
+            item.classList.toggle('is-selected', selected);
+            item.setAttribute('aria-pressed', String(selected));
+          });
+          if (value === 'audio') this.#stopGoLivePreview();
+          else void this.#startGoLivePreview();
+        } }, h('span', { 'aria-hidden': 'true', ...(symbol.startsWith?.('<svg') ? { html: symbol } : {}) }, symbol.startsWith?.('<svg') ? '' : symbol), label);
+        modeButtons.push(button);
+        return button;
+      }));
+    const details = h('div', { class: 'gl-prelive-details', hidden: true },
+      h('p', {}, t('livePreflightSettingsHint')),
+      h('label', {}, t('liveWhoCanWatch'), h('select', { class: 'field', onchange: event => { scope = event.target.value; } },
+        h('option', { value: 'public' }, t('everyone')),
+        h('option', { value: 'followers' }, t('followersOnly')))),
+      h('label', {}, t('admission'), h('select', { class: 'field', onchange: event => { admission = event.target.value; } },
+        h('option', { value: 'approval' }, t('admissionApproval')),
+        h('option', { value: 'open' }, t('admissionDirect')),
+        h('option', { value: 'broadcast' }, t('admissionOff')))),
+      h('label', {}, t('comments2'), h('select', { class: 'field', onchange: event => { comments = event.target.value; } },
+        h('option', { value: 'everyone' }, t('commentsEveryone')),
+        h('option', { value: 'followers' }, t('commentsFollowers')),
+        h('option', { value: 'off' }, t('commentsOff')))));
+    const guestSheet = new Sheet({ title: t('multiGuestSettings'), className: 'lc-sheet gl-multi-sheet' });
+    const guestLayoutCards = [
+      ['fullscreen', 2, t('layoutFullScreen')], ['featured', 3, t('layoutFluidPanel')],
+      ['fullscreen', 5, t('layoutFluidGrid')], ['fullscreen', 9, t('layoutFixedGrid')],
+      ['featured', 2, t('layoutSideBySide')], ['featured', 4, t('layoutSpotlight')],
+      ['fullscreen', 5, t('layoutRoundtableOne')], ['featured', 8, t('layoutRoundtableTwo')],
+    ];
+    let selectedLayout = 3;
+    let acceptRequests = false;
+    let guestAudience = '';
+    let guestAudienceChoice = 'followers';
+    const layoutCards = h('div', { class: 'gl-layout-cards' }, ...guestLayoutCards.map(([style, count, label], index) => h('button', {
+      class: `gl-layout-card${index === selectedLayout ? ' is-selected' : ''}`, type: 'button', 'aria-pressed': String(index === selectedLayout),
+      onclick: () => {
+        selectedLayout = index;
+        layoutStyle = style;
+        layout = count;
+        layoutCards.querySelectorAll('.gl-layout-card').forEach((item, itemIndex) => {
+          item.classList.toggle('is-selected', itemIndex === index);
+          item.setAttribute('aria-pressed', String(itemIndex === index));
+        });
+      },
+    }, h('span', { 'aria-hidden': 'true' }, '▦'), h('b', {}, label))));
+    const audienceOptions = [['everyone', 'open', t('everyone')], ['followers', 'approval', t('followers')], ['friends', 'approval', t('friends')], ['gifters', 'approval', t('gifters')]];
+    const audienceChoices = h('div', { class: 'gl-audience-options', role: 'radiogroup', 'aria-label': t('admission') },
+      ...audienceOptions.map(([choice, value, label]) => h('label', { class: 'gl-audience-option' },
+        h('input', { type: 'radio', name: 'glGuestAudience', value: choice, checked: choice === guestAudienceChoice, onchange: event => {
+          if (!event.target.checked) return;
+          guestAudienceChoice = choice;
+          guestAudience = value;
+          acceptRequests = value === 'open';
+          autoAccept.querySelector('input').checked = acceptRequests;
+        } }),
+        h('span', {}, label))));
+    const autoAccept = h('label', { class: 'lc-toggle' }, h('span', {}, t('autoAcceptRequests')),
+      h('input', { type: 'checkbox', class: 'lc-switch', role: 'switch', onchange: event => {
+        acceptRequests = event.target.checked;
+        guestAudience = acceptRequests ? 'open' : 'approval';
+        guestAudienceChoice = acceptRequests ? 'everyone' : 'followers';
+        audienceChoices.querySelectorAll('input').forEach(input => { input.checked = input.value === guestAudienceChoice; });
+      } }));
+    guestSheet.body.append(h('section', { class: 'lc-section' },
+      h('p', { class: 'lc-note' }, t('guestAdmissionSupportNote')),
+      h('div', { class: 'gl-layout-heading' }, h('b', {}, t('guestLayout')), h('button', { class: 'gl-show-all', type: 'button', onclick: () => layoutCards.classList.toggle('show-all') }, t('showAll'))),
+      layoutCards, autoAccept, audienceChoices));
+    this.preGuestSheet = guestSheet;
+    const dock = h('nav', { class: 'gl-dock', 'aria-label': t('goLive') },
+      ...[[t('live'), 'selected', null], [t('camera'), '', 'camera'], [t('create'), '', 'create']].map(([label, state, target]) => h('button', {
+        type: 'button', class: `gl-dock-tab ${state}`, 'aria-current': state ? 'page' : null,
+        onclick: () => {
+          if (!target) return;
+          sheet.close();
+          this.hooks.openStudio?.(target);
+        },
+      }, label)));
+    sheet.body.append(h('div', { class: 'gl-preview' }, this.goPreviewVideo,
+      h('div', { class: 'gl-preview-overlay' }),
+      h('header', { class: 'gl-topbar' }, close, h('div', { class: 'gl-top-actions' }, rewards, statusIcons)),
+      mission, this.goPreviewError, flip, beautify, effects),
+    h('form', { class: 'gl-form', onsubmit: event => {
       event.preventDefault();
       sheet.close();
-      this.#broadcast(title.value.trim(), mode.value, { admission: guests.value, comments: comments.value });
+      const liveTitle = [title.value.trim(), goalInput.value.trim() ? `${t('liveGoal')}: ${goalInput.value.trim()}` : ''].filter(Boolean).join(' · ').slice(0, 80);
+      this.#broadcast(liveTitle, this.goMode === 'audio' ? 'audio' : 'video', {
+        scope, admission: guestAudience || admission,
+        comments, layout, layoutStyle, allowRequests: true, showGuestSlots: true,
+      });
     } },
-    h('div', { class: 'gl-head' }, avatar(me, 36), title),
-    h('div', { class: 'gl-mode-row' }, mode),
-    group('👥', t('admission'), guests),
-    group('💬', t('comments2'), comments),
-    h('div', { class: 'gl-actions' }, start)));
+    toolRows, titleRow, goalInput, start, modeRow, dock, details));
     return sheet;
   }
 
@@ -998,8 +1170,25 @@ export class LiveView {
           .finally(() => { button.disabled = false; });
       }
       else if (act === 'settings') controls.openSettings();
+      else if (act === 'multi-guest') controls.openMultiGuest();
       else if (act === 'viewers') controls.openViewers();
       else if (act === 'moderation') controls.openModeration();
+      else if (act === 'comments-toggle') {
+        const next = session.settings.comments === 'off' ? 'everyone' : 'off';
+        button.disabled = true;
+        session.control('settings', { comments: next })
+          .then(() => {
+            button.setAttribute('aria-pressed', String(next === 'off'));
+            toast(next === 'off' ? t('commentsOffNote') : t('commentsEnabled'));
+          })
+          .catch(error => toast(error?.message || t('liveUnavailable')))
+          .finally(() => { button.disabled = false; });
+      }
+      else if (act === 'beautify') {
+        const enabled = !stage.classList.contains('host-beautified');
+        stage.classList.toggle('host-beautified', enabled);
+        button.setAttribute('aria-pressed', String(enabled));
+      }
       else if (act === 'profile') this.hooks.openProfile(live.host);
       else if (act === 'unpin') session.control('unpin').catch(error => toast(error.message));
       else if (act === 'guest') {
@@ -1018,9 +1207,16 @@ export class LiveView {
       if (input.value.trim()) { session.comment(input.value); input.value = ''; }
     });
     try {
-      await createSession({ room, title: live.title });
+      await createSession({ room, title: live.title, scope: live.initialSettings.scope });
       startHostLifecycle();
       await session.join();
+      const { admission, comments, layout, layoutStyle, allowRequests, showGuestSlots } = initialSettings;
+      try {
+        await session.control('settings', { admission, comments, layout, layoutStyle, allowRequests, showGuestSlots });
+      } catch (error) {
+        console.warn('[live] Could not apply preflight settings', error);
+        toast(t('liveSettingFailed'));
+      }
     } catch (error) {
       console.warn('[live] broadcast failed', error);
       toast(error?.name === 'NotAllowedError' ? t('cameraNeeded') : error.message || t('liveUnavailable'));

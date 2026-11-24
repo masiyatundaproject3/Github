@@ -58,7 +58,7 @@ export async function watchLives() {
   } catch { /* poll keeps it fresh */ }
 }
 
-export async function createSession({ room, title }) {
+export async function createSession({ room, title, scope = 'public' }) {
   // One LIVE per host: sessions left open by an earlier broadcast (app closed, connection lost) end first,
   // so viewers never land in an old room.
   await rest(`mw_video_live_sessions?host_id=eq.${auth.userId}&is_live=eq.true`, {
@@ -66,7 +66,7 @@ export async function createSession({ room, title }) {
   }).catch(() => {});
   const rows = await rest('mw_video_live_sessions', {
     method: 'POST', prefer: 'return=representation',
-    body: { room_name: room, host_id: auth.userId, host_name: auth.name, title, scope: 'public', is_live: true, started_at: new Date().toISOString(), ended_at: null },
+    body: { room_name: room, host_id: auth.userId, host_name: auth.name, title, scope: scope === 'followers' ? 'followers' : 'public', is_live: true, started_at: new Date().toISOString(), ended_at: null },
   });
   return rows?.[0];
 }

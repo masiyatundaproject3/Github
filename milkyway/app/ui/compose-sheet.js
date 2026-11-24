@@ -416,7 +416,7 @@ export class ComposeSheet {
       h('section', { class: 'compose-card compose-schedule-card' }, scheduleLabel, this.scheduleDateWrap));
   }
 
-  open() {
+  open(view = 'camera') {
     this.message.textContent = '';
     this.scheduleToggle.checked = false;
     this.scheduleDate.value = '';
@@ -430,7 +430,8 @@ export class ComposeSheet {
     this.detailsToggle.setAttribute('aria-expanded', 'false');
     this.reviewPanel.hidden = true;
     this.form.dataset.view = 'camera';
-    this.form.dataset.mode = 'camera';
+    const showCreate = view === 'create';
+    this.form.dataset.mode = showCreate ? 'create' : 'camera';
     this.stage.dataset.orientation = this.cameraOrientation;
     this.cameraSettingsPanel.hidden = true;
     this.cameraToolButtons.settingsButton.classList.remove('is-active');
@@ -438,15 +439,15 @@ export class ComposeSheet {
     this.zoomSlider.value = String(this.cameraZoom);
     this.#paintCameraZoom();
     this.autoStyleNextSelection = false;
-    this.createHub.hidden = true;
+    this.createHub.hidden = !showCreate;
     this.audioBar.hidden = !this.audioFile;
     this.stage.dataset.filter = '0';
     this.stage.dataset.timer = '';
     Object.values(this.cameraToolButtons).forEach(button => button.classList.remove('is-active'));
-    this.viewModeButtons.camera.classList.add('is-selected');
-    this.viewModeButtons.camera.setAttribute('aria-pressed', 'true');
-    this.viewModeButtons.create.classList.remove('is-selected');
-    this.viewModeButtons.create.setAttribute('aria-pressed', 'false');
+    this.viewModeButtons.camera.classList.toggle('is-selected', !showCreate);
+    this.viewModeButtons.camera.setAttribute('aria-pressed', String(!showCreate));
+    this.viewModeButtons.create.classList.toggle('is-selected', showCreate);
+    this.viewModeButtons.create.setAttribute('aria-pressed', String(showCreate));
     this.cameraVideo.classList.toggle('is-selfie', this.cameraFacing === 'user');
     this.captureMode = 'photo';
     this.captureDuration = 15_000;
@@ -456,7 +457,7 @@ export class ComposeSheet {
     this.preview.replaceChildren();
     this.stage.classList.remove('has-media');
     this.sheet.open();
-    void this.#startCamera();
+    if (!showCreate) void this.#startCamera();
   }
 
   #showReview() {

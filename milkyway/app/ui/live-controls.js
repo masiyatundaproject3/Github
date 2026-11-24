@@ -70,6 +70,12 @@ function toggleRow(label, checked, onchange) {
   return h('label', { class: 'lc-toggle' }, h('span', {}, label), input);
 }
 
+function settingRow(label, detail, onClick, disabled = false) {
+  return h('button', { class: 'lc-setting-row', type: 'button', onclick: onClick, disabled, 'aria-disabled': String(disabled) },
+    h('span', {}, h('b', {}, label), detail ? h('small', {}, detail) : null),
+    h('span', { class: 'lc-setting-chevron', 'aria-hidden': 'true' }, '›'));
+}
+
 function segmented(name, options, value, onchange) {
   const group = h('div', { class: `segmented lc-seg lc-seg-${options.length}`, role: 'radiogroup' });
   for (const [key, label] of options) {
@@ -88,7 +94,9 @@ export class HostControls {
     this.openProfile = openProfile;
     this.sheets = [];
     this.guestSheet = this.#sheet(t('guests'), 'lc-sheet');
-    this.settingsSheet = this.#sheet(t('liveSettings'), 'lc-sheet');
+    this.settingsSheet = this.#sheet('', 'lc-sheet');
+    this.multiGuestSheet = this.#sheet('', 'lc-sheet lc-multiguest-sheet');
+    this.audienceSheet = this.#sheet('', 'lc-sheet');
     this.viewerSheet = this.#sheet(t('viewersTitle'), 'lc-sheet');
     this.moderationSheet = this.#sheet(t('moderation'), 'lc-sheet');
     this.modQuery = '';
@@ -118,6 +126,7 @@ export class HostControls {
   openModeration() { this.#renderModeration(); this.moderationSheet.open(); }
   openSettings() { this.#renderSettings(); this.settingsSheet.open(); }
   openViewers() { this.#renderViewers(); this.viewerSheet.open(); }
+  openMultiGuest() { this.#renderMultiGuest(); this.multiGuestSheet.open(); }
   /** Actions for one person; `message` is set when opened from a comment. */
   openPerson(person, message = null) {
     if (!person?.userId || person.userId === auth.userId) return;
@@ -145,6 +154,7 @@ export class HostControls {
   #rerender() {
     if (this.guestSheet.isOpen) this.#renderGuests();
     if (this.settingsSheet.isOpen) this.#renderSettings({ keepInputs: true });
+    if (this.multiGuestSheet.isOpen) this.#renderMultiGuest();
     if (this.viewerSheet.isOpen) this.#renderViewers();
     if (this.moderationSheet.isOpen) this.#renderModeration();
     if (this.personSheet.isOpen) this.#renderPerson();
@@ -247,70 +257,124 @@ export class HostControls {
   // ---- LIVE settings ----------------------------------------------------------------------------------------
   #renderSettings({ keepInputs = false } = {}) {
     const s = this.session, settings = s.settings;
-    // Don't wipe what the host is typing when a refresh arrives.
     if (keepInputs && this.settingsSheet.body.contains(document.activeElement) && document.activeElement.matches('input[type="text"], input[type="url"]')) return;
-    const people = this.#people();
-    const byId = id => people.find(person => person.userId === id) || { userId: id, name: 'MilkyWay' };
-
-    const title = h('input', { class: 'field', type: 'text', maxlength: '80', value: s.live.title || '', placeholder: t('liveTitle') });
-    const titleForm = h('form', { class: 'lc-inline', onsubmit: async event => {
-      event.preventDefault();
-      if (await run(s, 'title', { title: title.value.trim() }, t('titleSaved'))) { s.live.title = title.value.trim(); }
-    } }, title, h('button', { class: 'pill-btn', type: 'submit' }, t('save')));
-
-    const words = settings.filterWords || [];
-    const wordInput = h('input', { class: 'field', type: 'text', maxlength: '30', placeholder: t('addKeyword'), enterkeyhint: 'done' });
-    const wordForm = h('form', { class: 'lc-inline', onsubmit: event => {
-      event.preventDefault();
-      const added = wordInput.value.split(',').map(word => word.trim().toLowerCase()).filter(word => word.length >= 2);
-      if (!added.length) return;
-      wordInput.value = '';
-      run(s, 'settings', { filterWords: [...words, ...added] });
-    } }, wordInput, h('button', { class: 'pill-btn', type: 'submit' }, t('addKeyword').split(' ')[0]));
-    const chips = h('div', { class: 'lc-chips' }, ...words.map(word => h('button', {
-      class: 'lc-chip', type: 'button', 'aria-label': `${t('remove')} ${word}`,
-      onclick: () => run(s, 'settings', { filterWords: words.filter(entry => entry !== word) }),
-    }, word, h('span', { html: icon.close }))));
-    const backgroundUrl = h('input', { class: 'field', type: 'url', maxlength: '2048', value: settings.hostBackground || '', placeholder: 'https://', 'aria-label': t('backgroundUrl') });
-    const backgroundKind = settings.hostBackgroundKind === 'video' ? 'video' : 'image';
-    const backgroundKindPicker = segmented('lcBackgroundKind', [['image', t('backgroundImage')], ['video', t('backgroundVideo')]], backgroundKind,
-      value => run(s, 'settings', { hostBackgroundKind: value }));
-    const backgroundForm = h('form', { class: 'lc-inline', onsubmit: event => {
-      event.preventDefault();
-      const url = backgroundUrl.value.trim();
-      if (url && !/^https:\/\//i.test(url)) { toast(t('httpsBackgroundOnly')); return; }
-      run(s, 'settings', { hostBackground: url, hostBackgroundKind: backgroundKind }, t('backgroundSaved'));
-    } }, backgroundUrl, h('button', { class: 'pill-btn', type: 'submit' }, t('save')));
-
-    const muted = (settings.mutedIds || []).map(byId);
-    const blocked = (settings.blockedIds || []).map(byId);
-
+    const close = h('button', { class: 'lc-sheet-close', type: 'button', 'aria-label': t('close'), onclick: () => this.settingsSheet.close() }, '×');
+    const header = h('header', { class: 'lc-sheet-header' }, h('strong', {}, t('liveSettings')), close);
+    const audience = settingRow(t('liveWhoCanWatch'), s.live.scope === 'followers' ? t('followersOnly') : t('everyone'), () => {
+      this.#renderAudience();
+      this.audienceSheet.open();
+    });
+    const noise = toggleRow(t('noiseSuppression'), s.noiseSuppression !== false, (enabled, input) => {
+      s.setNoiseSuppression(enabled).then(() => toast(t('liveSettingSaved'))).catch(error => {
+        input.checked = !enabled;
+        s.noiseSuppression = !enabled;
+        console.warn('[live] Could not update noise suppression', error);
+        toast(t('liveSettingFailed'));
+      });
+    });
+    const giftPreferences = toggleRow(t('giftPreferences'), settings.giftsEnabled !== false, enabled => {
+      void run(s, 'settings', { giftsEnabled: enabled }, t('liveSettingSaved'));
+    });
+    const practice = settingRow(t('practiceMode'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
+    const quality = settingRow(t('liveQuality'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
+    const assistant = settingRow(t('liveAiAssistant'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
+    const moderators = settingRow(t('moderators'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
+    const rankings = settingRow(t('rankings'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
+    const groupChats = settingRow(t('groupChats'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
+    const recordings = settingRow(t('liveRecordings'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
+    const monitoring = toggleRow(t('voiceMonitoring'), false, (_enabled, input) => {
+      input.checked = false;
+      toast(t('liveFeatureUnavailable'));
+    });
+    const stability = toggleRow(t('optimiseStability'), true, (_enabled, input) => {
+      input.checked = true;
+      toast(t('liveFeatureUnavailable'));
+    });
+    monitoring.querySelector('input').disabled = true;
+    stability.querySelector('input').disabled = true;
     this.settingsSheet.body.replaceChildren(
-      section(t('liveTitle'), titleForm),
-      section(t('guests'),
-        toggleRow(t('showGuestSlots'), !!settings.showGuestSlots, checked => run(s, 'settings', { showGuestSlots: checked })),
-        h('div', { class: 'lc-label' }, t('guestLayout')),
-        segmented('lcGuestLayout', [['fullscreen', t('gridLayout')], ['featured', t('featuredLayout')]], settings.layoutStyle === 'featured' ? 'featured' : 'fullscreen',
-          value => run(s, 'settings', { layoutStyle: value })),
-        actionBtn(t('seats'), () => this.openGuests(), 'pill-btn wide')),
-      section(t('hostBackground'), note(t('backgroundHint')), backgroundKindPicker, backgroundForm),
-      section(t('comments2'),
-        segmented('lcComments', [['everyone', t('commentsEveryone')], ['followers', t('commentsFollowers')], ['off', t('commentsOff')]], settings.comments || 'everyone',
-          value => run(s, 'settings', { comments: value })),
-        h('div', { class: 'lc-label' }, t('slowMode')),
-        segmented('lcSlow', SLOW_STEPS.map(step => [step, step ? `${step}${t('seconds')}` : t('slowOff')]), settings.slowMode || 0,
-          value => run(s, 'settings', { slowMode: Number(value) }))),
-      section(t('keywordFilter'), note(t('keywordHint')), wordForm, chips,
-        toggleRow(t('filterLinks'), settings.filterLinks, value => run(s, 'settings', { filterLinks: value }))),
-      section(t('audienceControls'),
-        toggleRow(t('showViewerCount'), settings.showViewerCount !== false, value => run(s, 'settings', { showViewerCount: value })),
-        toggleRow(t('allowGifts'), settings.giftsEnabled !== false, value => run(s, 'settings', { giftsEnabled: value })),
-        toggleRow(t('allowLikes'), settings.likesEnabled !== false, value => run(s, 'settings', { likesEnabled: value }))),
-      section(`${t('mutedCommenters')} (${muted.length})`,
-        ...(muted.length ? muted.map(person => personRow(person, actionBtn(t('unmute'), () => run(s, 'unmute-comments', { target: person.userId })))) : [note(t('noneYet'))])),
-      section(`${t('removedPeople')} (${blocked.length})`,
-        ...(blocked.length ? blocked.map(person => personRow(person, actionBtn(t('unblock'), () => run(s, 'unblock', { target: person.userId })))) : [note(t('noneYet'))])),
-    );
+      header,
+      section(t('liveAudioVideo'), monitoring, stability),
+      section(t('liveAudience'), audience, practice, settingRow(t('aboutMe'), t('profile'), () => {
+        this.openProfile?.({ id: auth.userId, name: auth.name });
+      }), quality, noise, assistant),
+      section(t('liveSafety'), settingRow(t('markedViewers'), t('viewersTitle'), () => this.openViewers()),
+        settingRow(t('mutedAccounts'), t('mutedCommenters'), () => this.openModeration()),
+        settingRow(t('blockedAccounts'), t('removedPeople'), () => this.openModeration()),
+        settingRow(t('commentSafety'), t('moderation'), () => this.openModeration()),
+        moderators),
+      section(t('liveCommunity'), giftPreferences, rankings, groupChats, recordings),
+      section(t('guests'), settingRow(t('multiGuestSettings'), t('guestLayout'), () => this.openMultiGuest())));
+  }
+
+  #renderAudience() {
+    const scope = this.session.live.scope === 'followers' ? 'followers' : 'public';
+    const close = h('button', { class: 'lc-sheet-close', type: 'button', 'aria-label': t('close'), onclick: () => this.audienceSheet.close() }, '×');
+    const options = [['public', t('everyone')], ['followers', t('followersOnly')]];
+    const controls = options.map(([value, label]) => {
+      const input = h('input', { type: 'radio', name: 'liveAudienceScope', value, checked: value === scope });
+      input.addEventListener('change', async () => {
+        if (!input.checked) return;
+        input.disabled = true;
+        if (await run(this.session, 'scope', { scope: value }, t('liveSettingSaved'))) {
+          this.session.live.scope = value;
+          this.#renderSettings();
+          this.#renderAudience();
+        }
+        input.disabled = false;
+      });
+      return h('label', { class: 'lc-audience-choice' }, input, h('span', {}, label));
+    });
+    this.audienceSheet.body.replaceChildren(
+      h('header', { class: 'lc-sheet-header' }, h('strong', {}, t('liveWhoCanWatch')), close),
+      section(t('liveAudience'), ...controls));
+  }
+
+  #renderMultiGuest() {
+    const s = this.session, settings = s.settings;
+    let selectedIndex = this.selectedGuestLayout ?? (settings.layoutStyle === 'featured' ? 1 : 0);
+    const cards = [
+      ['fullscreen', 2, t('layoutFullScreen')], ['featured', 3, t('layoutFluidPanel')],
+      ['fullscreen', 5, t('layoutFluidGrid')], ['fullscreen', 9, t('layoutFixedGrid')],
+      ['featured', 2, t('layoutSideBySide')], ['featured', 4, t('layoutSpotlight')],
+      ['fullscreen', 5, t('layoutRoundtableOne')], ['featured', 8, t('layoutRoundtableTwo')],
+    ];
+    const grid = h('div', { class: 'gl-layout-cards' }, ...cards.map(([style, count, label], index) => h('button', {
+      class: `gl-layout-card${index === selectedIndex ? ' is-selected' : ''}`, type: 'button',
+      'aria-pressed': String(index === selectedIndex), onclick: async () => {
+        selectedIndex = index;
+        this.selectedGuestLayout = index;
+        grid.querySelectorAll('.gl-layout-card').forEach((item, itemIndex) => {
+          item.classList.toggle('is-selected', itemIndex === index);
+          item.setAttribute('aria-pressed', String(itemIndex === index));
+        });
+        await run(s, 'settings', { layout: count, layoutStyle: style });
+      },
+    }, h('span', { 'aria-hidden': 'true' }, '▦'), h('b', {}, label))));
+    const autoAccept = toggleRow(t('autoAcceptRequests'), settings.admission === 'open', value => {
+      void run(s, 'settings', { admission: value ? 'open' : 'approval', allowRequests: true });
+    });
+    const audience = [['everyone', 'open', t('everyone')], ['followers', 'approval', t('followers')], ['friends', 'approval', t('friends')], ['gifters', 'approval', t('gifters')]];
+    this.guestAudienceChoice ||= settings.admission === 'open' ? 'everyone' : 'followers';
+    const radios = h('div', { class: 'gl-audience-options', role: 'radiogroup', 'aria-label': t('admission') },
+      ...audience.map(([choice, value, label]) => {
+        const input = h('input', { type: 'radio', name: 'multiGuestAudience', value: choice, checked: choice === this.guestAudienceChoice });
+        input.addEventListener('change', () => {
+          if (!input.checked) return;
+          this.guestAudienceChoice = choice;
+          void run(s, 'settings', { admission: value, allowRequests: true });
+        });
+        return h('label', { class: 'gl-audience-option' }, input, h('span', {}, label));
+      }));
+    this.multiGuestSheet.body.replaceChildren(
+      h('header', { class: 'lc-sheet-header' },
+        h('button', { class: 'lc-sheet-back', type: 'button', 'aria-label': t('back'), onclick: () => this.multiGuestSheet.close() }, '‹'),
+        h('strong', {}, t('multiGuestSettings'))),
+      section(t('guestLayout'),
+        h('div', { class: 'gl-layout-heading' }, h('b', {}, t('guestLayout')),
+          h('button', { class: 'gl-show-all', type: 'button', onclick: () => grid.classList.toggle('show-all') }, t('showAll'))),
+        grid),
+      section(t('admission'), autoAccept, radios, note(t('guestAdmissionSupportNote'))));
   }
 
   // ---- Moderation -------------------------------------------------------------------------------------------

@@ -139,6 +139,7 @@ export class LiveSession extends Emitter {
     this.voicePreset = 'normal';
     this.voiceCapture = null;
     this.voiceEnabled = false;
+    this.noiseSuppression = true;
   }
 
   get settings() { return this.status?.settings || {}; }
@@ -147,6 +148,19 @@ export class LiveSession extends Emitter {
    *  room as a viewer is never a guest. */
   get seated() { return !this.host && !this.self?.host && this.self?.state === 'speaker'; }
   get canPublish() { return !!this.room?.localParticipant?.permissions?.canPublish; }
+
+  async setNoiseSuppression(enabled) {
+    const next = !!enabled;
+    const tracks = this.voiceCapture?.input.getAudioTracks() || [];
+    await Promise.all(tracks.map(track => {
+      const supported = track.getCapabilities?.().noiseSuppression;
+      if (Array.isArray(supported) && !supported.includes(next)) {
+        throw new Error(t('liveFeatureUnavailable'));
+      }
+      return track.applyConstraints({ noiseSuppression: next });
+    }));
+    this.noiseSuppression = next;
+  }
 
   #setStage(next) {
     if (this.stage === next) return;
@@ -584,7 +598,7 @@ export class LiveSession extends Emitter {
       capture = null;
     }
     if (!capture) {
-      const input = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      const input = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: this.noiseSuppression, autoGainControl: true } });
       let effects = null;
       try { effects = createVoiceEffects(input, this.voicePreset); }
       catch {

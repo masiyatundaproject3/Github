@@ -418,6 +418,12 @@ async function handle({ ctx, body, method }) {
     return { ok: true, title };
   }
 
+  if (action === 'scope') {
+    const scope = body.scope === 'followers' ? 'followers' : 'public';
+    await ctx.rest(`mw_video_live_sessions?id=eq.${room.record.id}`, { method: 'PATCH', body: { scope } });
+    return { ok: true, scope };
+  }
+
   if (action === 'delete-message') {
     const id = requireUuid(body.id, 'message');
     await ctx.rest(`mw_live_room_messages?id=eq.${id}&room_name=eq.${enc(room.roomName)}`, { method: 'PATCH', body: { deleted: true } });
