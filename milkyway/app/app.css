@@ -622,9 +622,9 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
 .profile-sheet .sheet-grip, .profile-sheet .sheet-title { margin-left: 14px; margin-right: 14px; }
 .profile-sheet .sheet-title { margin-bottom: 4px; }
 .profile-sheet .sheet-body { padding-left: 0; padding-right: 0; }
-.profile { position: relative; display: grid; gap: 12px; padding: 0 14px; }
+.profile { position: relative; display: grid; gap: 12px; }
 .profile::before {
-  content: ""; position: absolute; z-index: 0; top: 0; left: 0; right: 0; height: 120px; margin-left: -14px; margin-right: -14px;
+  content: ""; position: absolute; z-index: 0; top: 0; left: 0; right: 0; height: 120px;
   border-top: 1px solid rgba(191,205,255,.18); border-bottom: 1px solid rgba(191,205,255,.18);
   background:
     linear-gradient(180deg, rgba(4,6,24,.24), rgba(4,6,24,.88)),
@@ -635,6 +635,7 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
   pointer-events: none;
 }
 .profile > * { position: relative; z-index: 1; }
+.profile-head, .profile-bio, .profile-stats, .profile-actions, .mw-profile-services { margin-left: 14px; margin-right: 14px; }
 .profile-head { order: 0; display: flex; align-items: flex-end; gap: 14px; padding-top: 74px; }
 .profile-avatar-shortcut, .nova-profile-photo-button { display: inline-flex; align-items: center; justify-content: center; flex: none; padding: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
 .profile-head .avatar { --s: 84px; border: 3px solid rgba(255,255,255,.88); box-shadow: 0 5px 18px rgba(0,0,0,.4); }
@@ -642,7 +643,7 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
 .profile-names { display: grid; gap: 2px; min-width: 0; }
 .profile-names b { font-size: clamp(16px, 4.5vw, 19px); line-height: 1.15; overflow-wrap: anywhere; }
 .profile-names .muted, .profile-names small { overflow-wrap: anywhere; }
-.profile-bio { order: 2; margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.profile-bio { order: 2; margin: 0 14px; white-space: pre-line; overflow-wrap: anywhere; }
 .profile-stats { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; font-size: 12.5px; color: var(--muted); }
 .profile-stats b { display: block; font-size: 17px; color: var(--fg); }
 .profile-stats { order: 3; }
