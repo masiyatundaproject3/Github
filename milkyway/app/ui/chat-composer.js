@@ -71,7 +71,7 @@ export class ChatComposer {
     this.noteMenu = h('div', { class: 'chat-note-menu', role: 'group', 'aria-label': t('mediaNoteOptions'), hidden: true },
       this.voice, this.video);
     this.noteMenuPlaceholder = document.createComment('media note menu position');
-    this.noteButton = this.#tool(t('mediaNoteOptions'), '◉', () => {
+    this.noteButton = this.#tool(t('mediaNoteOptions'), '⋯', () => {
       this.voicePresetSelect.hidden = true;
       this.voicePresetPlaceholder.before(this.voicePresetSelect);
       this.voiceEffectButton.setAttribute('aria-expanded', 'false');
@@ -159,7 +159,7 @@ export class ChatComposer {
     const margin = 10;
     const safeTop = Math.max(margin, viewportTop + margin);
     const safeBottom = Math.min(document.documentElement.clientHeight - margin, viewportBottom - margin);
-    const maxHeight = Math.max(100, safeBottom - safeTop);
+    const maxHeight = Math.max(0, safeBottom - safeTop);
     popup.style.maxHeight = `${maxHeight}px`;
     const measured = popup.getBoundingClientRect();
     const left = Math.max(viewportLeft + margin,

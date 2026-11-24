@@ -1,5 +1,5 @@
 // DOM helpers, icons and formatting shared by the views. No framework: direct, minimal DOM writes.
-import { lang } from '../core/i18n.js';
+import { lang, t } from '../core/i18n.js';
 import { setImage } from '../core/media.js';
 
 export const $ = (selector, root = document) => root.querySelector(selector);
@@ -100,7 +100,10 @@ let toastTimer = 0;
 export function toast(message) {
   let node = document.getElementById('mwToast');
   if (!node) { node = h('div', { id: 'mwToast', class: 'toast', role: 'status', 'aria-live': 'polite' }); document.body.append(node); }
-  node.textContent = message;
+  const text = typeof message === 'string'
+    ? message.replace(/\b(?:null|undefined)\b/gi, '').replace(/\s+/g, ' ').trim()
+    : '';
+  node.textContent = text || t('retry');
   node.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => node.classList.remove('show'), 2400);

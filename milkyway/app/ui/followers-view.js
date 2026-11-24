@@ -235,7 +235,8 @@ export class FollowersView {
     } catch (error) {
       if (token !== this.token) return;
       console.error('[connections] Could not load connections.', error);
-      this.content.replaceChildren(h('p', { class: 'muted center', role: 'status' }, t('retry')));
+      this.content.replaceChildren(h('div', { class: 'connections-error', role: 'status' },
+        h('b', {}, t('connectionLost')), h('span', {}, t('retry'))));
     }
   }
 

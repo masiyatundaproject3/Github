@@ -40,6 +40,9 @@ const followersView = lazy(() => import('./ui/followers-view.js').then(m => new 
 })));
 function openCommunity() {
   if (!requireLogin()) return;
+  document.querySelectorAll('.scope-tabs [role="tab"]').forEach(button => {
+    button.setAttribute('aria-selected', String(button.hasAttribute('data-community')));
+  });
   followersView().then(view => view.open({ id: auth.userId, name: auth.name }, { tab: 'suggested' }));
 }
 const callView = lazy(() => import('./ui/call-view.js').then(m => m.calls));
@@ -110,7 +113,9 @@ function setScope(next) {
   if (next === 'following' && !requireLogin()) return;
   scope = next;
   try { localStorage.setItem('mw_core_scope', next); } catch {}
-  document.querySelectorAll('[data-scope]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.scope === next)));
+  document.querySelectorAll('.scope-tabs [role="tab"]').forEach(button => {
+    button.setAttribute('aria-selected', String(button.dataset.scope === next));
+  });
   feedView.show(next);
 }
 
