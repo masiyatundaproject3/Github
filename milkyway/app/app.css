@@ -87,6 +87,18 @@ html[data-muted] .mute-toggle .i-sound, html:not([data-muted]) .mute-toggle .i-m
   .walkie-entry { width: 46px; }
   .walkie-label { max-width: 46px; font-size: 8px; }
 }
+body:has(.sheet-layer.open .profile-sheet) .topbar > :not(#muteToggle):not(#profileSearch) { display: none; }
+body:has(.sheet-layer.open .profile-sheet) #muteToggle,
+body:has(.sheet-layer.open .profile-sheet) #profileSearch {
+  position: fixed; z-index: 70; top: calc(100dvh - min(86dvh, 840px) + 49px);
+  display: grid; width: 38px; height: 38px; border: 1px solid rgba(226,232,255,.28);
+  border-radius: 50%; background: rgba(5,8,28,.76); color: #fff;
+  box-shadow: 0 4px 14px rgba(0,0,0,.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+body:has(.sheet-layer.open .profile-sheet) #muteToggle { right: 58px; }
+body:has(.sheet-layer.open .profile-sheet) #profileSearch { right: 12px; }
+body:has(.sheet-layer.open .profile-sheet) #muteToggle svg,
+body:has(.sheet-layer.open .profile-sheet) #profileSearch svg { width: 19px; height: 19px; }
 
 /* ---- Milky Way atmosphere & watermark ------------------------------------------------------------------------ */
 .cosmos-bg { position: fixed; inset: 0; z-index: -1; pointer-events: none;
@@ -606,18 +618,20 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
 }
 
 /* ---- Profile + composer ----------------------------------------------------------------------------------- */
-.profile-sheet { max-height: min(86dvh, 840px); }
+.profile-sheet { height: min(86dvh, 840px); max-height: min(86dvh, 840px); padding-left: 0; padding-right: 0; }
+.profile-sheet .sheet-grip, .profile-sheet .sheet-title { margin-left: 14px; margin-right: 14px; }
 .profile-sheet .sheet-title { margin-bottom: 4px; }
-.profile { position: relative; display: grid; gap: 12px; }
+.profile-sheet .sheet-body { padding-left: 0; padding-right: 0; }
+.profile { position: relative; display: grid; gap: 12px; padding: 0 14px; }
 .profile::before {
-  content: ""; position: absolute; z-index: 0; top: 0; left: 0; right: 0; height: 120px;
-  border: 1px solid rgba(191,205,255,.18); border-radius: 18px;
+  content: ""; position: absolute; z-index: 0; top: 0; left: 0; right: 0; height: 120px; margin-left: -14px; margin-right: -14px;
+  border-top: 1px solid rgba(191,205,255,.18); border-bottom: 1px solid rgba(191,205,255,.18);
   background:
-    linear-gradient(180deg, rgba(6,8,29,.22), rgba(6,8,29,.92)),
-    url("../galaxy-starfield.svg") center 42% / 340px 396px,
-    radial-gradient(100% 130% at 15% 0%, rgba(128,93,255,.72), transparent 58%),
+    linear-gradient(180deg, rgba(4,6,24,.24), rgba(4,6,24,.88)),
+    url("../galaxy-starfield.svg") center 42% / 420px 490px,
+    radial-gradient(100% 130% at 12% 0%, rgba(128,93,255,.72), transparent 58%),
     linear-gradient(120deg, #121c53 0%, #17113d 52%, #080b27 100%);
-  box-shadow: inset 0 1px rgba(255,255,255,.12), 0 12px 30px rgba(3,5,20,.25);
+  box-shadow: inset 0 1px rgba(255,255,255,.12);
   pointer-events: none;
 }
 .profile > * { position: relative; z-index: 1; }
@@ -632,10 +646,21 @@ html[data-low-end] .create-orb, html[data-low-end] .gift-card, html[data-low-end
 .profile-stats { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; font-size: 12.5px; color: var(--muted); }
 .profile-stats b { display: block; font-size: 17px; color: var(--fg); }
 .profile-stats { order: 3; }
-.profile-actions { order: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-.profile-actions .pill-btn { min-width: 0; min-height: 34px; padding: 7px 6px; border-radius: 11px; font-size: 12px; line-height: 1.15; gap: 5px; white-space: normal; }
+.profile-actions { position: static; order: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.profile-actions .pill-btn { min-width: 0; min-height: 32px; padding: 6px 5px; border-radius: 9px; font-size: 11.5px; line-height: 1.15; gap: 4px; white-space: normal; }
 .profile-actions .pill-btn svg { width: 15px; height: 15px; flex: none; }
 .profile-actions .nova-admin-btn { grid-column: 1 / -1; }
+.profile-actions .nova-menu-btn {
+  position: absolute; top: 7px; left: 14px; display: grid; place-items: center;
+  width: 38px; min-height: 38px; padding: 0; border: 1px solid rgba(226,232,255,.28);
+  border-radius: 50%; background: rgba(5,8,28,.76); color: #fff; font-size: 0;
+  box-shadow: 0 4px 14px rgba(0,0,0,.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.profile-actions .nova-menu-btn span { display: none; }
+.profile-actions .nova-menu-btn::before {
+  content: ""; width: 17px; height: 14px;
+  background: linear-gradient(to bottom, #fff 0 2px, transparent 2px 6px, #fff 6px 8px, transparent 8px 12px, #fff 12px 14px);
+}
 .profile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
 .profile-grid { order: 4; }
 .profile-grid > p { grid-column: 1 / -1; }
