@@ -83,6 +83,7 @@ export class ComposeSheet {
     this.audioPreview = h('div', { class: 'compose-audio-preview' });
     this.audioBar = h('div', { class: 'creator-audio-bar', hidden: true }, this.audioPreview);
     this.cameraStream = null;
+    this.microphoneStream = null;
     this.cameraFacing = 'user';
     this.captureMode = 'photo';
     this.captureDuration = 15_000;
@@ -100,6 +101,8 @@ export class ComposeSheet {
     this.captureTimer = 0;
     this.captureRecorder = null;
     this.captureChunks = [];
+    this.recordingRequest = 0;
+    this.recordingStarting = false;
     this.cameraVideo = h('video', { class: 'creator-camera-video', autoplay: true, muted: true, playsinline: true, 'aria-label': t('camera') });
     this.stage = h('div', { class: 'creator-stage', 'data-mode': 'photo' }, this.cameraVideo, this.preview);
     this.stageMessage = h('span', { class: 'creator-stage-message', role: 'status', 'aria-live': 'polite' });
@@ -119,9 +122,10 @@ export class ComposeSheet {
     this.message = h('p', { class: 'muted', role: 'status' });
     this.submit = h('button', { class: 'pill-btn hot wide compose-submit', type: 'submit' }, t('publish'));
     const soundButton = h('button', {
-      class: 'creator-sound-button', type: 'button',
+      class: 'creator-sound-button', type: 'button', 'aria-label': t('studioAddSound'),
       onclick: () => this.#openPicker(this.audioInput),
     }, h('span', { 'aria-hidden': 'true' }, '♫'), t('studioAddSound'));
+    const createTitle = h('strong', { class: 'creator-create-title' }, t('create'));
     const closeButton = h('button', {
       class: 'creator-close', type: 'button', 'aria-label': t('cancel'), title: t('cancel'),
       onclick: () => this.sheet.close(),
@@ -216,30 +220,46 @@ export class ComposeSheet {
       this.zoomValue,
       h('small', { class: 'creator-settings-hint' }, t('cameraAutoHint')));
     const createTool = (label, symbol, handler) => h('button', {
-      class: 'creator-hub-tool', type: 'button', onclick: handler,
+      class: 'creator-hub-tool', type: 'button', onclick: handler, 'aria-label': label,
     }, h('span', { 'aria-hidden': 'true' }, symbol), h('b', {}, label));
     const openMediaForAutoCut = () => {
       this.autoStyleNextSelection = true;
       this.#openPicker(this.mediaInput);
     };
+    const openDrafts = () => {
+      if (this.files.length || this.caption.value.trim() || this.audioFile) this.#showReview();
+      else toast(t('studioNoDrafts'));
+    };
+    const startNewVideo = () => {
+      this.form.dataset.mode = 'camera';
+      this.createHub.hidden = true;
+      this.viewModeButtons.camera.classList.add('is-selected');
+      this.viewModeButtons.camera.setAttribute('aria-pressed', 'true');
+      this.viewModeButtons.create.classList.remove('is-selected');
+      this.viewModeButtons.create.setAttribute('aria-pressed', 'false');
+      this.captureDuration = 15_000;
+      this.#setCaptureMode('video');
+      void this.#startCamera();
+    };
     const templateFilters = [
-      ['all', t('studioTemplateFilterAll')],
-      ['motion', t('studioTemplateFilterMotion')],
-      ['cinematic', t('studioTemplateFilterCinematic')],
-      ['classic', t('studioTemplateFilterClassic')],
+      ['all', t('studioTemplateForYou')],
+      ['viral', t('studioTemplateViral')],
+      ['trendy', t('studioTemplateTrendy')],
+      ['ai', t('studioTemplateAi')],
+      ['recap', t('studioTemplateRecap')],
     ];
     const templateFilterButtons = [];
     const templateStyles = [
-      ['fade', 'motion', t('styleFade')],
-      ['zoom', 'motion', t('styleZoom')],
-      ['cinema', 'cinematic', t('styleCinema')],
-      ['page', 'classic', t('stylePage')],
-      ['slide', 'classic', t('styleSlide')],
+      ['fade', 'viral', t('styleFade')],
+      ['zoom', 'trendy', t('styleZoom')],
+      ['cinema', 'ai', t('styleCinema')],
+      ['page', 'recap', t('stylePage')],
+      ['slide', 'viral', t('styleSlide')],
     ];
     const templateGrid = h('div', { class: 'creator-template-grid' },
       ...templateStyles.map(([style, category, label]) => {
         const button = h('button', {
-          class: 'creator-template', type: 'button', dataset: { category, style },
+          class: 'creator-template', type: 'button', dataset: { category, style, label },
           'aria-pressed': String(this.style.value === style),
           onclick: () => {
             this.style.value = style;
@@ -249,19 +269,43 @@ export class ComposeSheet {
         }, h('span', { class: `creator-template-preview style-${style}`, 'aria-hidden': 'true' }, '✦'), h('small', {}, label));
         return button;
       }));
-    const templateFilter = h('div', { class: 'creator-template-filters', role: 'group', 'aria-label': t('studioTemplateFilterAll') },
+    const templateSearch = h('input', {
+      class: 'creator-template-search', type: 'search', placeholder: t('studioTemplateSearch'),
+      'aria-label': t('studioTemplateSearch'), hidden: true,
+      oninput: () => {
+        const query = templateSearch.value.trim().toLocaleLowerCase();
+        templateGrid.querySelectorAll('.creator-template').forEach(template => {
+          template.hidden = (query && !template.dataset.label.toLocaleLowerCase().includes(query))
+            || (activeTemplateCategory !== 'all' && template.dataset.category !== activeTemplateCategory);
+        });
+      },
+    });
+    let activeTemplateCategory = 'all';
+    const templateSearchButton = h('button', {
+      class: 'creator-template-search-button', type: 'button', 'aria-label': t('studioTemplateSearch'),
+      'aria-expanded': 'false', onclick: () => {
+        templateSearch.hidden = !templateSearch.hidden;
+        templateSearchButton.setAttribute('aria-expanded', String(!templateSearch.hidden));
+        if (!templateSearch.hidden) templateSearch.focus({ preventScroll: true });
+        else { templateSearch.value = ''; templateSearch.dispatchEvent(new Event('input')); }
+      },
+    }, '⌕');
+    const templateFilter = h('div', { class: 'creator-template-filters', role: 'group', 'aria-label': t('studioTemplates') },
       ...templateFilters.map(([category, label], index) => {
         const button = h('button', {
           class: `creator-template-filter${index === 0 ? ' is-selected' : ''}`, type: 'button',
           'aria-pressed': String(index === 0),
           onclick: () => {
+            activeTemplateCategory = category;
             templateFilterButtons.forEach(filter => {
               const selected = filter === button;
               filter.classList.toggle('is-selected', selected);
               filter.setAttribute('aria-pressed', String(selected));
             });
             templateGrid.querySelectorAll('.creator-template').forEach(template => {
-              template.hidden = category !== 'all' && template.dataset.category !== category;
+              const query = templateSearch.value.trim().toLocaleLowerCase();
+              template.hidden = (category !== 'all' && template.dataset.category !== category)
+                || (query && !template.dataset.label.toLocaleLowerCase().includes(query));
             });
           },
         }, label);
@@ -269,25 +313,29 @@ export class ComposeSheet {
         return button;
       }));
     const templatesSection = h('section', { class: 'creator-templates' },
-      h('h3', {}, t('studioTemplates')), templateFilter, templateGrid);
+      h('div', { class: 'creator-templates-heading' }, h('h3', {}, t('studioTemplates')), templateSearchButton),
+      templateSearch, templateFilter, templateGrid);
     const liveShortcut = h('button', {
       class: 'creator-live-shortcut', type: 'button', onclick: () => {
         this.sheet.close();
         document.querySelector('#liveEntry')?.click();
       },
     }, h('span', { 'aria-hidden': 'true' }, '●'), t('studioLiveShortcut'));
-    const openAudioPicker = () => this.#openPicker(this.audioInput);
     this.createHub.append(
-      h('h2', {}, t('create')),
       h('div', { class: 'creator-hub-tools' },
-        createTool(t('studioPhotoEditor'), '✧', () => this.#openPicker(this.mediaInput)),
-        createTool(t('studioAutoCut'), '▧', openMediaForAutoCut),
+        createTool(t('studioPhotoEditor'), '▧', () => this.#openPicker(this.mediaInput)),
+        createTool(t('studioAutoCut'), '✦', openMediaForAutoCut),
         createTool(t('studioCaptions'), 'Aa', () => {
           this.#showReview();
           this.caption.focus({ preventScroll: true });
         }),
-        createTool(t('studioAudio'), '♫', openAudioPicker),
-        createTool(t('studioNewMedia'), '+', () => this.#openPicker(this.mediaInput))),
+        createTool(t('studioAiSelf'), '✧', () => this.#openPicker(this.mediaInput)),
+        createTool(t('studioCutout'), '◉', () => this.#openPicker(this.mediaInput))),
+      h('div', { class: 'creator-hub-actions' },
+        h('button', { class: 'creator-hub-action creator-hub-new-video', type: 'button', onclick: startNewVideo },
+          h('span', { 'aria-hidden': 'true' }, '+'), h('b', {}, t('studioNewVideo'))),
+        h('button', { class: 'creator-hub-action creator-hub-drafts', type: 'button', onclick: openDrafts },
+          h('span', { 'aria-hidden': 'true' }, '▤'), h('b', {}, t('studioDrafts')))),
       templatesSection);
     const detailsToggle = h('button', {
       class: 'creator-details-toggle', type: 'button', 'aria-expanded': 'false',
@@ -350,7 +398,7 @@ export class ComposeSheet {
       onsubmit: event => { event.preventDefault(); this.#publish(); },
       dataset: { view: 'camera' },
     },
-    h('header', { class: 'creator-header' }, closeButton, soundButton, h('span', { class: 'creator-header-spacer', 'aria-hidden': 'true' })),
+    h('header', { class: 'creator-header' }, closeButton, soundButton, createTitle, h('span', { class: 'creator-header-spacer', 'aria-hidden': 'true' })),
     this.mediaInput, this.audioInput,
     h('div', { class: 'creator-stage-wrap' },
       this.stage, this.textStage, this.stageMessage,
@@ -448,7 +496,7 @@ export class ComposeSheet {
       if (this.cameraOrientation === 'portrait') video.aspectRatio = { ideal: 9 / 16 };
       else if (this.cameraOrientation === 'landscape') video.aspectRatio = { ideal: 16 / 9 };
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+        audio: false,
         video,
       });
       if (request !== this.cameraRequest || !this.sheet.isOpen) {
@@ -589,9 +637,16 @@ export class ComposeSheet {
     this.captureCanvas = null;
   }
 
+  #stopMicrophone() {
+    this.microphoneStream?.getTracks().forEach(track => track.stop());
+    this.microphoneStream = null;
+  }
+
   #stopCamera() {
     this.cameraRequest++;
     this.cameraStarting = false;
+    this.recordingRequest++;
+    this.recordingStarting = false;
     clearTimeout(this.captureTimer);
     this.captureTimer = 0;
     if (this.captureRecorder && this.captureRecorder.state !== 'inactive') {
@@ -602,6 +657,7 @@ export class ComposeSheet {
     this.captureRecorder = null;
     this.captureChunks = [];
     this.#clearCaptureCanvas();
+    this.#stopMicrophone();
     this.cameraStream?.getTracks().forEach(track => track.stop());
     this.cameraStream = null;
     this.cameraVideo.srcObject = null;
@@ -700,12 +756,25 @@ export class ComposeSheet {
     }, 'image/jpeg', 0.92);
   }
 
-  #recordClip() {
+  async #recordClip() {
+    if (this.recordingStarting || this.captureRecorder?.state === 'recording') return;
     if (typeof MediaRecorder !== 'function') {
       this.stageMessage.textContent = t('recordingFailed');
       return;
     }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.stageMessage.textContent = t('microphoneAccessFailed');
+      return;
+    }
+    this.recordingStarting = true;
+    const request = ++this.recordingRequest;
     try {
+      const microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      if (request !== this.recordingRequest || !this.sheet.isOpen) {
+        microphoneStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      this.microphoneStream = microphoneStream;
       const formats = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
       const mimeType = formats.find(type => MediaRecorder.isTypeSupported?.(type)) || '';
       let recordingStream = this.cameraStream;
@@ -716,7 +785,7 @@ export class ComposeSheet {
           this.#clearCaptureCanvas();
           this.captureCanvas = canvas;
           this.captureCanvasStream = canvas.captureStream(30);
-          this.cameraStream.getAudioTracks().forEach(track => this.captureCanvasStream.addTrack(track));
+          microphoneStream.getAudioTracks().forEach(track => this.captureCanvasStream.addTrack(track));
           recordingStream = this.captureCanvasStream;
           const draw = () => {
             if (!this.captureCanvas || this.captureRecorder?.state !== 'recording') return;
@@ -725,6 +794,12 @@ export class ComposeSheet {
           };
           this.captureFrame = requestAnimationFrame(draw);
         }
+      }
+      if (recordingStream === this.cameraStream) {
+        recordingStream = new MediaStream([
+          ...this.cameraStream.getVideoTracks(),
+          ...microphoneStream.getAudioTracks(),
+        ]);
       }
       const recorder = new MediaRecorder(recordingStream, mimeType ? { mimeType } : undefined);
       this.captureRecorder = recorder;
@@ -737,11 +812,15 @@ export class ComposeSheet {
         this.captureTimer = 0;
         this.shutter.classList.remove('is-recording');
         this.captureRecorder = null;
+        this.recordingStarting = false;
+        this.#stopMicrophone();
       };
       recorder.onstop = () => {
         this.shutter.classList.remove('is-recording');
         this.captureRecorder = null;
+        this.recordingStarting = false;
         this.#clearCaptureCanvas();
+        this.#stopMicrophone();
         clearTimeout(this.captureTimer);
         this.captureTimer = 0;
         const blob = new Blob(this.captureChunks, { type: recorder.mimeType || 'video/webm' });
@@ -751,13 +830,20 @@ export class ComposeSheet {
         this.stageMessage.textContent = '';
       };
       recorder.start(250);
+      this.recordingStarting = false;
       this.shutter.classList.add('is-recording');
       this.stageMessage.textContent = t('recording');
       this.captureTimer = setTimeout(() => {
         if (recorder.state === 'recording') recorder.stop();
       }, this.captureDuration);
     } catch (error) {
-      this.stageMessage.textContent = String(error?.message || t('recordingFailed')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('recordingFailed');
+      if (request !== this.recordingRequest || !this.sheet.isOpen) return;
+      this.#clearCaptureCanvas();
+      this.recordingStarting = false;
+      this.#stopMicrophone();
+      this.stageMessage.textContent = error?.name === 'NotAllowedError' || error?.name === 'NotFoundError'
+        ? t('microphoneAccessFailed')
+        : String(error?.message || t('recordingFailed')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('recordingFailed');
     }
   }
 
