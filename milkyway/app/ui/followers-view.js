@@ -89,12 +89,12 @@ export class FollowersView {
     this.sheet.body.replaceChildren(this.header, this.tabs, this.toolbar, this.content);
   }
 
-  async open(profile, { tab = 'followers' } = {}) {
+  async open(profile, { tab = 'followers', mode = 'connections' } = {}) {
     if (!profile?.id) return;
     const token = this.token = (this.token || 0) + 1;
     this.person = { ...safePerson(profile), id: String(profile.id) };
     this.own = this.person.id === String(auth.userId || '');
-    this.mode = 'connections';
+    this.mode = mode === 'activity' && this.own ? 'activity' : 'connections';
     this.tab = ['following', 'followers', 'friends', 'suggested'].includes(tab) ? tab : 'followers';
     this.search.value = '';
     this.searchTerm = '';
@@ -237,7 +237,10 @@ export class FollowersView {
         console.warn('[connections] Suggested account previews could not be loaded.', error);
       }
     }
-    if (token === this.token) this.#renderRows();
+    if (token === this.token) {
+      if (this.mode === 'activity') this.#renderActivity();
+      else this.#renderRows();
+    }
   }
 
   #render() {
@@ -317,11 +320,15 @@ export class FollowersView {
       const person = this.peopleById?.get(id) || profiles.peek(id);
       return person ? this.#personRow(person, { subtitle: t('newFollower') }) : null;
     }).filter(Boolean);
+    if (!this.suggestions) void this.#loadSuggested(this.token);
+    const suggestedRows = (this.suggestions || []).slice(0, 8).map(person => this.#suggestionRow(person));
     this.content.replaceChildren(
       h('h3', { class: 'connections-section-title' }, t('followRequests')),
       ...(requestRows.length ? requestRows : [h('p', { class: 'muted center' }, t('noFollowRequests'))]),
       h('h3', { class: 'connections-section-title' }, t('newFollowers')),
       ...(newFollowers.length ? newFollowers : [h('p', { class: 'muted center' }, t('noNewFollowers'))]),
+      h('h3', { class: 'connections-section-title' }, t('suggestedAccounts')),
+      ...(suggestedRows.length ? suggestedRows : [h('p', { class: 'muted center' }, t('noSuggestions'))]),
     );
   }
 

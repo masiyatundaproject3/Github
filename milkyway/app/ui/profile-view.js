@@ -87,8 +87,8 @@ function normalizeProfilePost(row) {
 }
 
 export class ProfileView {
-  constructor({ requireLogin, openCreate, openComments, openMenu, openChat, openFollowers }) {
-    this.hooks = { requireLogin, openCreate, openComments, openMenu, openChat, openFollowers };
+  constructor({ requireLogin, openCreate, openComments, openMenu, openChat, openFollowers, openActivity }) {
+    this.hooks = { requireLogin, openCreate, openComments, openMenu, openChat, openFollowers, openActivity };
     this.sheet = new Sheet({ title: t('me'), className: 'profile-sheet', onClose: () => this.#sheetClosed() });
     this.content = h('div', { class: 'profile' });
     this.sheet.body.append(this.content);
@@ -292,13 +292,14 @@ export class ProfileView {
     try {
       const sb = await supabase();
       const head = { count: 'exact', head: true };
-      const [profile, followers, following, posts, followingRows, followerRows] = await Promise.all([
+      const [profile, followers, following, posts, followingRows, followerRows, requests] = await Promise.all([
         quiet(sb.from('mw_profiles').select('*').eq('id', id).maybeSingle()),
         quiet(sb.from('mw_follows').select('follower_id', head).eq('following_id', id)),
         quiet(sb.from('mw_follows').select('following_id', head).eq('follower_id', id)),
         quiet(loadProfilePosts(sb, id)),
         quiet(sb.from('mw_follows').select('following_id').eq('follower_id', id).limit(2000)),
         quiet(sb.from('mw_follows').select('follower_id').eq('following_id', id).limit(2000)),
+        this.own ? quiet(sb.from('mw_follow_requests').select('requester_id', head).eq('target_id', id)) : Promise.resolve({ count: 0 }),
       ]);
       if (token !== this.token) return;
       const row = profile.data || {};
@@ -326,6 +327,7 @@ export class ProfileView {
         followers: followers.count || 0,
         following: following.count || 0,
         friends,
+        requests: requests.count || 0,
         posts: profilePosts,
         postsError: profileText(posts.error?.message),
       };
@@ -402,7 +404,7 @@ export class ProfileView {
     return card;
   }
 
-  #render({ profile, followers = 0, following = 0, friends = 0, posts = [], loading = false, error = false, postsError = '' }) {
+  #render({ profile, followers = 0, following = 0, friends = 0, requests = 0, posts = [], loading = false, error = false, postsError = '' }) {
     profile = profile && typeof profile === 'object' ? profile : { id: this.id || auth.userId || '' };
     this.profilePrivate = Boolean(profile.private);
     this.posts = Array.isArray(posts) ? posts.filter(post => post && typeof post === 'object') : [];
@@ -480,7 +482,12 @@ export class ProfileView {
           text: profileText(profile.bio),
           url: new URL(location.pathname, location.origin).href,
         }) }),
-        h('button', { class: 'profile-icon-btn', type: 'button', 'aria-label': t('likedPosts'), title: t('likedPosts'), html: icon.heart, onclick: () => this.#selectTab('liked') }),
+        this.own ? h('button', {
+          class: 'profile-icon-btn profile-activity-btn', type: 'button',
+          'aria-label': t('activity'), title: t('activity'),
+          onclick: () => (this.hooks.openActivity || this.hooks.openFollowers)?.(profile, { mode: 'activity' }),
+        }, h('span', { class: 'profile-icon-glyph', 'aria-hidden': 'true' }, '◷'),
+        Number(requests) > 0 ? h('span', { class: 'profile-activity-count', 'aria-label': `${count(requests)} ${t('followRequests')}` }, count(requests)) : null) : null,
         this.own ? h('button', { class: 'profile-icon-btn nova-menu-btn', type: 'button', 'aria-label': t('menu'), title: t('menu'), html: icon.gear, onclick: () => this.hooks.openMenu?.(profile) }) : null,
         h('button', { class: 'profile-icon-btn profile-close-btn', type: 'button', 'aria-label': t('close'), title: t('close'), html: icon.close, onclick: () => this.close() })));
     const interests = Array.isArray(profile.interests)

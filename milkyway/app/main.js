@@ -39,6 +39,10 @@ const followersView = lazy(() => import('./ui/followers-view.js').then(m => new 
   openLive: room => showLive(room),
   requireLogin,
 })));
+function openCommunity() {
+  if (!requireLogin()) return;
+  followersView().then(view => view.open({ id: auth.userId, name: auth.name }, { tab: 'suggested' }));
+}
 const walkieTalkieView = lazy(() => import('./ui/walkie-talkie.js').then(m => new m.WalkieTalkieView()));
 const callView = lazy(() => import('./ui/call-view.js').then(m => m.calls));
 const novaMenu = lazy(() => import('./ui/settings-view.js').then(m => new m.NovaMenu({
@@ -56,6 +60,7 @@ const profileView = lazy(() => import('./ui/profile-view.js').then(m => new m.Pr
   openMenu: profile => novaMenu().then(menu => menu.open(profile)),
   openChat: person => { if (requireLogin()) inboxView().then(view => view.openWith(person)); },
   openFollowers: (person, options) => followersView().then(view => view.open(person, options)),
+  openActivity: person => followersView().then(view => view.open(person, { mode: 'activity' })),
 })));
 const profileSearch = lazy(() => import('./ui/profile-search.js').then(m => new m.ProfileSearch({ openProfile })));
 const composeSheet = lazy(() => import('./ui/compose-sheet.js').then(m => new m.ComposeSheet()));
@@ -168,9 +173,10 @@ function route() {
 addEventListener('popstate', route);
 
 document.addEventListener('click', event => {
-  const target = event.target.closest('[data-scope], [data-nav], #liveEntry, #walkieEntry, #profileSearch');
+  const target = event.target.closest('[data-scope], [data-community], [data-nav], #liveEntry, #walkieEntry, #profileSearch');
   if (!target) return;
   if (target.dataset.scope) { if (shell.dataset.view !== 'home') showHome(); setScope(target.dataset.scope); return; }
+  if (target.hasAttribute('data-community')) { openCommunity(); return; }
   if (target.id === 'liveEntry') { showLive(); return; }
   if (target.id === 'walkieEntry') {
     if (requireLogin()) walkieTalkieView().then(view => view.open()).catch(error => {
