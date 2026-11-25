@@ -6,7 +6,7 @@
 import { t } from '../core/i18n.js';
 import { auth } from '../core/net.js';
 import { Sheet } from './sheet.js';
-import { h, icon, toast, avatar } from './dom.js';
+import { h, icon, toast, avatar, WaitIndicator } from './dom.js';
 
 const SLOW_STEPS = [0, 3, 10, 30, 60];
 const MAX_SEATS = 8;
@@ -107,6 +107,7 @@ export class HostControls {
     this.guestSheet = this.#sheet(t('guests'), 'lc-sheet');
     this.settingsSheet = this.#sheet('', 'lc-sheet');
     this.multiGuestSheet = this.#sheet('', 'lc-sheet lc-multiguest-sheet');
+    this.multiGuestWait = new WaitIndicator(this.multiGuestSheet.panel);
     this.audienceSheet = this.#sheet('', 'lc-sheet');
     this.preferenceSheet = this.#sheet('', 'lc-sheet');
     this.viewerSheet = this.#sheet(t('viewersTitle'), 'lc-sheet');
@@ -127,7 +128,11 @@ export class HostControls {
     ];
   }
 
-  destroy() { this.offs.forEach(off => off()); this.sheets.forEach(sheet => sheet.root.remove()); }
+  destroy() {
+    this.offs.forEach(off => off());
+    this.multiGuestWait.destroy();
+    this.sheets.forEach(sheet => sheet.root.remove());
+  }
 
   openGuests() {
     this.#renderGuests();
@@ -390,13 +395,16 @@ export class HostControls {
     const grid = h('div', { class: 'gl-layout-cards' }, ...cards.map(([style, count, label], index) => h('button', {
       class: `gl-layout-card${index === selectedIndex ? ' is-selected' : ''}`, type: 'button',
       'aria-pressed': String(index === selectedIndex), onclick: async () => {
-        selectedIndex = index;
-        this.selectedGuestLayout = index;
-        grid.querySelectorAll('.gl-layout-card').forEach((item, itemIndex) => {
-          item.classList.toggle('is-selected', itemIndex === index);
-          item.setAttribute('aria-pressed', String(itemIndex === index));
-        });
-        await run(s, 'settings', { layout: count, layoutStyle: style });
+        this.multiGuestWait.start('layout', t('switchingLiveMode'));
+        try {
+          if (!await run(s, 'settings', { layout: count, layoutStyle: style })) return;
+          selectedIndex = index;
+          this.selectedGuestLayout = index;
+          grid.querySelectorAll('.gl-layout-card').forEach((item, itemIndex) => {
+            item.classList.toggle('is-selected', itemIndex === index);
+            item.setAttribute('aria-pressed', String(itemIndex === index));
+          });
+        } finally { this.multiGuestWait.stop('layout'); }
       },
     }, h('span', { 'aria-hidden': 'true' }, '▦'), h('b', {}, label))));
     const autoAccept = toggleRow(t('autoAcceptRequests'), settings.admission === 'open', value => {
