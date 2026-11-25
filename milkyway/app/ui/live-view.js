@@ -15,7 +15,7 @@ import { loadLiveKit } from '../core/sdk.js';
 import { HostControls, InvitePrompt } from './live-controls.js';
 import { Sheet } from './sheet.js';
 import { openShare } from './share-sheet.js';
-import { h, icon, count, toast, paintAvatar, brandMark, avatar } from './dom.js';
+import { h, icon, count, toast, paintAvatar, brandMark, avatar, WaitIndicator } from './dom.js';
 import { VOICE_PRESETS } from './voice-effects.js';
 
 const JOIN_DELAY = 200;
@@ -575,6 +575,7 @@ export class LiveView {
     this.goPreviewRequest = 0;
     this.goPreviewVideo = null;
     this.goPreviewError = null;
+    this.goWait = null;
     this.surface = h('div', { class: 'live-pager', tabindex: '0', 'aria-label': 'LIVE' });
     this.empty = h('div', { class: 'live-empty', hidden: true },
       h('p', {}, t('noLives')),
@@ -652,6 +653,8 @@ export class LiveView {
     this.activeSlide = slide;
     resetStage(slide);
     this.unbind = connectUi(slide, session);
+    slide._wait ||= new WaitIndicator(slide);
+    slide._wait.start('join', t('connectingLive'));
     session.on('ended', () => {
       if (this.session !== session) return;
       slide._refs.state.hidden = false;
@@ -685,10 +688,11 @@ export class LiveView {
         slide._refs.state.hidden = false;
         slide._refs.state.textContent = error.message || t('liveUnavailable');
       } else showRetry(slide, error?.name === 'NotAllowedError' ? t('cameraNeeded') : t('liveUnavailable'));
-    }
+    } finally { slide._wait.stop('join'); }
   }
 
   #leave() {
+    this.activeSlide?._wait?.stop('join');
     clearTimeout(this.viewerGraceTimer);
     this.viewerGraceTimer = 0;
     if (this.viewerRestingSlide) {
@@ -846,12 +850,17 @@ export class LiveView {
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) { toast(t('cameraNeeded')); return; }
     this.goSheet ||= this.#buildGoLiveSheet();
     this.goSheet.open();
-    void this.#startGoLivePreview();
+    void this.#startGoLivePreview('camera');
   }
 
-  async #startGoLivePreview() {
+  async #startGoLivePreview(waitKey = '') {
     if (!this.goPreviewVideo || this.goPreviewStream || !this.goSheet?.isOpen || this.goMode === 'audio') return;
     const request = ++this.goPreviewRequest;
+    if (waitKey) {
+      this.goWait.start(waitKey, waitKey === 'camera' ? t('preparingCamera') : t('switchingLiveMode'), {
+        onCancel: () => this.goSheet.close(),
+      });
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: this.goFacing || 'user' } });
       if (request !== this.goPreviewRequest || !this.goSheet?.isOpen || this.goMode === 'audio') {
@@ -866,11 +875,14 @@ export class LiveView {
       if (request === this.goPreviewRequest) {
         this.goPreviewError.textContent = String(error?.message || t('cameraNeeded')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('cameraNeeded');
       }
+    } finally {
+      if (waitKey && request === this.goPreviewRequest) this.goWait.stop(waitKey);
     }
   }
 
   #stopGoLivePreview() {
     this.goPreviewRequest++;
+    this.goWait?.clear();
     this.goPreviewStream?.getTracks().forEach(track => track.stop());
     this.goPreviewStream = null;
     if (this.goPreviewVideo) this.goPreviewVideo.srcObject = null;
@@ -879,7 +891,7 @@ export class LiveView {
   async #flipGoLivePreview() {
     this.goFacing = this.goFacing === 'user' ? 'environment' : 'user';
     this.#stopGoLivePreview();
-    await this.#startGoLivePreview();
+    await this.#startGoLivePreview('camera-switch');
   }
 
   #buildGoLiveSheet() {
@@ -892,6 +904,7 @@ export class LiveView {
       autoFocus: false,
     });
     sheet.panel.setAttribute('aria-label', t('goLive'));
+    this.goWait = new WaitIndicator(sheet.panel);
     this.goFacing = 'user';
     this.goMode = 'video';
     let admission = 'approval';
@@ -954,7 +967,7 @@ export class LiveView {
             item.setAttribute('aria-pressed', String(selected));
           });
           if (value === 'audio') this.#stopGoLivePreview();
-          else void this.#startGoLivePreview();
+          else void this.#startGoLivePreview('mode');
         } }, h('span', { 'aria-hidden': 'true', ...(typeof symbol === 'string' && symbol.trimStart().startsWith('<svg') ? { html: symbol } : {}) },
           typeof symbol === 'string' && symbol.trimStart().startsWith('<svg') ? '' : symbol), label);
         modeButtons.push(button);
@@ -1055,6 +1068,7 @@ export class LiveView {
     const live = { room, title: title || t('live'), mode, initialSettings, host: { id: auth.userId, name: auth.name, avatar: profiles.peek(auth.userId)?.avatar || '' } };
     paintLive(stage, live);
     document.body.append(stage);
+    const wait = new WaitIndicator(stage);
     const session = new LiveSession(live, { host: true, mode });
     const picker = voicePicker(session);
     const controls = new HostControls(session, { openProfile: person => this.hooks.openProfile(person) });
@@ -1121,6 +1135,7 @@ export class LiveView {
       if (finished) return;
       finished = true;
       stopHostLifecycle();
+      wait.destroy();
       unbind();
       picker.destroy();
       controls.destroy();
@@ -1208,6 +1223,7 @@ export class LiveView {
       if (input.value.trim()) { session.comment(input.value); input.value = ''; }
     });
     try {
+      wait.start('broadcast', t('connectingLive'), { onCancel: () => { void finish(); } });
       await createSession({ room, title: live.title, scope: live.initialSettings.scope });
       startHostLifecycle();
       await session.join();
@@ -1218,7 +1234,9 @@ export class LiveView {
         console.warn('[live] Could not apply preflight settings', error);
         toast(t('liveSettingFailed'));
       }
+      wait.stop('broadcast');
     } catch (error) {
+      wait.stop('broadcast');
       console.warn('[live] broadcast failed', error);
       toast(error?.name === 'NotAllowedError' ? t('cameraNeeded') : error.message || t('liveUnavailable'));
       finish();

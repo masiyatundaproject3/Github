@@ -19,6 +19,106 @@ export function h(tag, attrs = {}, ...children) {
   return node;
 }
 
+export class WaitIndicator {
+  constructor(root) {
+    this.root = root;
+    this.entries = new Map();
+    this.lockedButtons = new Map();
+    this.status = h('p', { class: 'mw-wait-status', role: 'status', 'aria-live': 'polite' });
+    this.cancel = h('button', { class: 'mw-wait-cancel', type: 'button', hidden: true }, t('cancel'));
+    this.overlay = h('div', { class: 'mw-wait-overlay', hidden: true },
+      h('div', { class: 'mw-wait-card' },
+        h('span', { class: 'mw-wait-spinner', 'aria-hidden': 'true' }),
+        h('strong', { class: 'mw-wait-title' }, t('pleaseWait')),
+        this.status,
+        h('span', { class: 'mw-wait-progress', 'aria-hidden': 'true' }),
+        this.cancel));
+    this.cancel.addEventListener('click', () => {
+      const current = Array.from(this.entries.values()).pop();
+      if (!current?.onCancel) return;
+      this.cancel.disabled = true;
+      try { current.onCancel(); }
+      finally {
+        this.cancel.disabled = false;
+        if (this.entries.has(current.key)) this.stop(current.key);
+      }
+    });
+    this.root.append(this.overlay);
+  }
+
+  #lockButtons() {
+    this.root.querySelectorAll('button:not(.mw-wait-cancel)').forEach(button => {
+      if (!this.lockedButtons.has(button)) this.lockedButtons.set(button, button.disabled);
+      button.classList.add('mw-wait-locked');
+      button.disabled = true;
+    });
+  }
+
+  start(key, message, { onCancel = null, cancelLabel = t('cancel') } = {}) {
+    this.entries.delete(key);
+    this.entries.set(key, { key, message, onCancel });
+    this.cancel.textContent = cancelLabel;
+    this.cancel.hidden = typeof onCancel !== 'function';
+    this.status.textContent = message;
+    this.overlay.hidden = false;
+    this.root.setAttribute('aria-busy', 'true');
+    this.#lockButtons();
+    if (!this.observer && typeof MutationObserver === 'function') {
+      this.observer = new MutationObserver(() => this.#lockButtons());
+      this.observer.observe(this.root, { childList: true, subtree: true });
+    }
+  }
+
+  update(key, message) {
+    const entry = this.entries.get(key);
+    if (!entry) return;
+    entry.message = message;
+    this.status.textContent = message;
+  }
+
+  stop(key) {
+    this.entries.delete(key);
+    const current = Array.from(this.entries.values()).pop();
+    if (current) {
+      this.status.textContent = current.message;
+      this.cancel.textContent = t('cancel');
+      this.cancel.hidden = typeof current.onCancel !== 'function';
+      return;
+    }
+    this.overlay.hidden = true;
+    this.root.removeAttribute('aria-busy');
+    this.observer?.disconnect();
+    this.observer = null;
+    for (const [button, wasDisabled] of this.lockedButtons) {
+      if (button.isConnected) {
+        button.disabled = wasDisabled;
+        button.classList.remove('mw-wait-locked');
+      }
+    }
+    this.lockedButtons.clear();
+  }
+
+  clear() {
+    this.entries.clear();
+    this.overlay.hidden = true;
+    this.root.removeAttribute('aria-busy');
+    this.observer?.disconnect();
+    this.observer = null;
+    for (const [button, wasDisabled] of this.lockedButtons) {
+      if (button.isConnected) {
+        button.disabled = wasDisabled;
+        button.classList.remove('mw-wait-locked');
+      }
+    }
+    this.lockedButtons.clear();
+  }
+
+  destroy() {
+    this.clear();
+    this.overlay.remove();
+  }
+}
+
 /** Universal MilkyWay watermark: a semi-transparent brand mark laid over posts, videos, audio and LIVE views.
  *  It is a display overlay only; uploaded originals are never modified. */
 export const BRAND_MARK_SRC = new URL('../../brand/milkyway-watermark-galaxy.webp', import.meta.url).href;

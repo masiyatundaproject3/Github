@@ -6,7 +6,7 @@ import { createVideoPreview, optimizeImage, optimizeVideo, yieldToBrowser } from
 import { profiles } from '../data/profiles.js';
 import { feed } from '../data/feed.js';
 import { Sheet } from './sheet.js';
-import { h, icon, toast, count } from './dom.js';
+import { h, icon, toast, count, WaitIndicator } from './dom.js';
 
 const MAX_IMAGE = 10 * 1024 * 1024;
 const MAX_VIDEO = 100 * 1024 * 1024;
@@ -113,6 +113,7 @@ export class ComposeSheet {
   constructor({ onPublished } = {}) {
     this.onPublished = onPublished;
     this.sheet = new Sheet({ title: t('newPost'), className: 'compose-sheet creator-studio-sheet', onClose: () => {
+      this.wait?.stop('camera');
       this.#stopCamera();
       this.#releaseMedia();
       this.#pickAudio(null);
@@ -476,6 +477,7 @@ export class ComposeSheet {
       h('div', { class: 'creator-bottom-switch', role: 'group', 'aria-label': t('create') }, cameraViewButton, createViewButton)),
     this.reviewPanel);
     this.sheet.body.append(this.form);
+    this.wait = new WaitIndicator(this.sheet.panel);
     this.creatorDetails.append(
       h('div', { class: 'compose-assist' }, this.assist, this.style),
       h('section', { class: 'compose-card compose-schedule-card' }, scheduleLabel, this.scheduleDateWrap));
@@ -557,6 +559,14 @@ export class ComposeSheet {
     }
     this.cameraStarting = true;
     const request = ++this.cameraRequest;
+    this.wait.start('camera', t('preparingCamera'), {
+      onCancel: () => {
+        this.cameraRequest++;
+        this.cameraStarting = false;
+        this.#stopCamera();
+        this.sheet.close();
+      },
+    });
     try {
       const video = { facingMode: this.cameraFacing };
       if (this.cameraOrientation === 'portrait') video.aspectRatio = { ideal: 9 / 16 };
@@ -580,7 +590,10 @@ export class ComposeSheet {
         this.stageMessage.textContent = String(error?.message || t('cameraAccessFailed')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('cameraAccessFailed');
       }
     } finally {
-      if (request === this.cameraRequest) this.cameraStarting = false;
+      if (request === this.cameraRequest) {
+        this.cameraStarting = false;
+        this.wait.stop('camera');
+      }
     }
   }
 
@@ -951,6 +964,7 @@ export class ComposeSheet {
     this.mediaInput.value = '';
     this.preview.replaceChildren();
     if (!files.length) {
+      this.wait.stop('media');
       if (!this.audioFile) this.#backToCamera();
       return;
     }
@@ -958,6 +972,17 @@ export class ComposeSheet {
     this.message.textContent = t('loading');
     this.mediaPending = true;
     this.submit.disabled = true;
+    const waitKey = 'media';
+    this.wait.start(waitKey, t('preparingMedia'), {
+      onCancel: () => {
+        if (selection !== this.mediaSelection) return;
+        this.mediaSelection++;
+        this.mediaPending = false;
+        this.submit.disabled = this.audioPending || this.publishing;
+        this.#backToCamera();
+        this.message.textContent = '';
+      },
+    });
     let entries;
     try {
       entries = await Promise.all(files.map(async file => ({ file, ...(await identifyMediaFile(file)) })));
@@ -968,6 +993,7 @@ export class ComposeSheet {
       if (selection === this.mediaSelection) {
         this.mediaPending = false;
         if (!this.publishing && !this.audioPending) this.submit.disabled = false;
+        this.soundWait.stop(waitKey);
       }
     }
     if (selection !== this.mediaSelection) return;
@@ -1068,6 +1094,7 @@ export class ComposeSheet {
           this.activeSoundPreviewButton?.classList.remove('is-playing');
         },
       });
+      this.soundWait = new WaitIndicator(this.soundSheet.panel);
       this.soundSheet.body.replaceChildren(search, this.soundTabs, this.soundStatus, this.soundList);
     }
     this.soundSheet.open();
@@ -1083,11 +1110,23 @@ export class ComposeSheet {
   }
 
   async #loadSoundTracks() {
+    const request = (this.soundLoadRequest || 0) + 1;
+    this.soundLoadRequest = request;
+    const waitKey = `sounds-${request}`;
+    this.soundWait.stop(this.soundWaitKey);
+    this.soundWaitKey = waitKey;
     this.soundStatus.textContent = t('loading');
     this.soundList.replaceChildren();
+    this.soundWait.start(waitKey, t('loadingSounds'), {
+      onCancel: () => {
+        this.soundLoadRequest++;
+        this.soundSheet.close();
+      },
+    });
     try {
       const source = feed('foryou');
       await source.load();
+      if (request !== this.soundLoadRequest) return;
       const posts = source.source.value?.posts || [];
       const usesByUrl = new Map();
       for (const post of posts) {
@@ -1114,8 +1153,14 @@ export class ComposeSheet {
       this.soundStatus.textContent = '';
       this.#renderSoundTracks();
     } catch (error) {
+      if (request !== this.soundLoadRequest) return;
       console.error('[compose] Sound picker could not load tracks', error);
       this.soundStatus.textContent = t('exploreLoadFailed');
+    } finally {
+      if (request === this.soundLoadRequest) {
+        this.soundWait.stop(waitKey);
+        this.soundWaitKey = '';
+      }
     }
   }
 
@@ -1221,6 +1266,7 @@ export class ComposeSheet {
   }
 
   #pickAudioTrack(track) {
+    this.wait.stop('audio');
     if (this.audioUrl) URL.revokeObjectURL(this.audioUrl);
     this.audioSelection++;
     this.audioPending = false;
@@ -1240,8 +1286,13 @@ export class ComposeSheet {
   #openSoundTrim(track) {
     this.trimSheet ||= new Sheet({
       title: t('studioSoundTrim'), className: 'sound-trim-sheet', autoFocus: false,
-      onClose: () => this.trimAudio?.pause(),
+      onClose: () => {
+        this.trimRequest = (this.trimRequest || 0) + 1;
+        this.trimWait?.clear();
+        this.trimAudio?.pause();
+      },
     });
+    this.trimWait ||= new WaitIndicator(this.trimSheet.panel);
     const audio = h('audio', { class: 'sound-trim-audio', src: track.url, controls: true, preload: 'metadata' });
     this.trimAudio = audio;
     const start = h('input', { class: 'field', type: 'range', min: '0', max: '0', step: '0.1', value: '0', disabled: true });
@@ -1251,17 +1302,29 @@ export class ComposeSheet {
     const apply = h('button', { class: 'pill-btn hot wide', type: 'button', disabled: true, onclick: async () => {
       apply.disabled = true;
       message.textContent = t('loading');
+      const request = (this.trimRequest || 0) + 1;
+      this.trimRequest = request;
+      this.trimWait.start('trim', t('processingMedia'), {
+        onCancel: () => {
+          this.trimRequest++;
+          this.trimSheet.close();
+        },
+      });
       try {
         const file = await trimSoundFile(track.url, Number(start.value), Number(end.value));
+        if (request !== this.trimRequest) return;
         if (file.size > MAX_AUDIO) throw new Error(t('audioTooBig'));
         this.#pickAudio(file);
         this.soundPreview?.pause();
         this.trimSheet.close();
         this.soundSheet.close();
       } catch (error) {
+        if (request !== this.trimRequest) return;
         console.error('[compose] Sound clip could not be trimmed', error);
         message.textContent = readableError(error, t('studioSoundTrimFailed'));
         apply.disabled = false;
+      } finally {
+        if (request === this.trimRequest) this.trimWait.stop('trim');
       }
     } }, t('studioSoundUseClip'));
     const updateRange = () => {
@@ -1306,10 +1369,22 @@ export class ComposeSheet {
     this.audioInput.value = '';
     this.audioPreview.replaceChildren();
     this.audioBar.hidden = !file;
-    if (!file) return;
+    if (!file) {
+      this.wait.stop('audio');
+      return;
+    }
     this.#showReview();
     this.audioPending = true;
     this.submit.disabled = true;
+    this.wait.start('audio', t('preparingMedia'), {
+      onCancel: () => {
+        if (selection !== this.audioSelection) return;
+        this.audioSelection++;
+        this.audioPending = false;
+        this.submit.disabled = this.mediaPending || this.publishing;
+        this.#pickAudio(null);
+      },
+    });
     let info;
     try { info = await identifyMediaFile(file); }
     catch (error) {
@@ -1319,6 +1394,7 @@ export class ComposeSheet {
       if (selection === this.audioSelection) {
         this.audioPending = false;
         if (!this.publishing && !this.mediaPending) this.submit.disabled = false;
+        this.wait.stop('audio');
       }
     }
     if (selection !== this.audioSelection) return;
@@ -1404,11 +1480,13 @@ export class ComposeSheet {
     this.submit.textContent = t('uploading');
     this.submit.setAttribute('aria-busy', 'true');
     this.message.textContent = t('uploading');
+    this.wait.start('publish', t('processingMedia'));
     let phase = 'connecting to Supabase';
     try {
       const sb = await supabase();
       const video = this.files[0]?.kind === 'video';
       phase = 'uploading post media';
+      this.wait.update('publish', t('processingMedia'));
       const mediaItems = [];
       const mediaPreviewItems = [];
       let media_url = null;
@@ -1418,8 +1496,10 @@ export class ComposeSheet {
         await yieldToBrowser();
         const videoFile = await optimizeVideo(selectedVideo, { onProgress: progress => {
           this.message.textContent = `${t('optimizingMedia')} ${progress}%`;
+          this.wait.update('publish', `${t('processingMedia')} ${progress}%`);
         } });
         this.message.textContent = t('uploading');
+        this.wait.update('publish', t('uploading'));
         const [uploaded, posterFile] = await Promise.all([
           this.#upload(sb, videoFile),
           createVideoPreview(videoFile),
@@ -1432,6 +1512,7 @@ export class ComposeSheet {
       } else {
         const uploadedPhotos = await mapConcurrent(this.files, 2, async ({ file }, index) => {
           this.message.textContent = `${t('optimizingMedia')} ${index + 1}/${this.files.length}`;
+          this.wait.update('publish', `${t('processingMedia')} ${index + 1}/${this.files.length}`);
           await yieldToBrowser();
           const optimized = await optimizeImage(file);
           const [uploaded, preview] = await Promise.all([
@@ -1450,11 +1531,13 @@ export class ComposeSheet {
         }
       }
       phase = 'uploading background audio';
+      this.wait.update('publish', t('uploading'));
       const audioUpload = this.audioFile ? await this.#upload(sb, this.audioFile) : null;
       const audio_url = audioUpload?.url || this.audioTrack?.url || null;
       const media_type = video ? 'video' : media_url ? 'image' : null;
       const author_name = profiles.peek(auth.userId)?.name || auth.name;
       phase = 'saving post details';
+      this.wait.update('publish', t('uploading'));
       const { data: savedPost, error } = await sb.from('mw_posts').insert({
         author_id: auth.userId, author_name, caption: caption || null, media_url, media_type,
         media_items: mediaItems, media_preview_items: mediaPreviewItems, audio_url, slideshow_style: this.style.value,
@@ -1483,6 +1566,7 @@ export class ComposeSheet {
       this.publishing = false;
       this.submit.removeAttribute('aria-busy');
       this.submit.textContent = this.scheduleToggle.checked ? t('studioSchedulePost') : t('publish');
+      this.wait.stop('publish');
       this.submit.disabled = false;
     }
   }
