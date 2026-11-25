@@ -76,7 +76,7 @@ function liveChrome({ host = false } = {}) {
   const micBtn = h('button', { class: 'icon-btn', type: 'button', 'data-act': 'mic', 'aria-label': t('microphone'), title: t('microphone'), html: icon.mic });
   const voiceBtn = h('button', { class: 'icon-btn live-voice-btn', type: 'button', 'data-act': 'voice', 'aria-label': t('voiceChanger'), title: t('voiceChanger'), html: '♫' });
   const camBtn = h('button', { class: 'icon-btn live-video-only', type: 'button', 'data-act': 'cam', 'aria-label': t('camera'), title: t('camera'), html: icon.camera });
-  const tools = h('div', { class: 'live-tools', 'data-no-swipe': true },
+  const tools = h('div', { class: `live-tools${host ? ' live-bottom-tools' : ''}`, 'data-no-swipe': true },
     h('button', { class: 'icon-btn live-video-only', type: 'button', 'data-act': 'flip', 'aria-label': t('flipCamera'), title: t('flipCamera'), html: icon.flip }),
     voiceBtn, micBtn, camBtn,
     host ? null : h('button', { class: 'icon-btn leave', type: 'button', 'data-act': 'leave-stage', 'aria-label': t('leaveStage'), title: t('leaveStage'), html: icon.leave }));

@@ -149,14 +149,11 @@ export class HostControls {
     const settings = this.session.settings;
     const layout = Number(settings.layout);
     if (settings.showGuestSlots && settings.layoutStyle === 'featured' && layout > 1) return;
-    this.multiGuestWait.start('slots', t('switchingLiveMode'));
-    try {
-      await run(this.session, 'settings', {
-        showGuestSlots: true,
-        layout: layout > 1 ? layout : 8,
-        layoutStyle: 'featured',
-      });
-    } finally { this.multiGuestWait.stop('slots'); }
+    if (await run(this.session, 'settings', {
+      showGuestSlots: true,
+      layout: layout > 1 ? layout : 8,
+      layoutStyle: 'featured',
+    }) && this.multiGuestSheet.isOpen) this.#renderMultiGuest();
   }
   /** Actions for one person; `message` is set when opened from a comment. */
   openPerson(person, message = null) {
