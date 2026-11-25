@@ -2,17 +2,18 @@
 import { h } from './dom.js';
 
 export class Sheet {
-  constructor({ title = '', className = '', onClose, autoFocus = true } = {}) {
+  constructor({ title = '', className = '', onClose, autoFocus = true, dismissible = true } = {}) {
     this.onClose = onClose;
     this.autoFocus = autoFocus;
+    this.dismissible = dismissible;
     this.body = h('div', { class: 'sheet-body' });
     this.heading = h('h2', { class: 'sheet-title' }, title);
     this.panel = h('div', { class: `sheet ${className}`, role: 'dialog', 'aria-modal': 'true', 'data-no-swipe': true },
       h('div', { class: 'sheet-grip', 'aria-hidden': 'true' }), this.heading, this.body);
     this.root = h('div', { class: 'sheet-layer', hidden: true },
-      h('div', { class: 'sheet-backdrop', onclick: () => this.close() }), this.panel);
+      h('div', { class: 'sheet-backdrop', onclick: () => { if (this.dismissible) this.close(); } }), this.panel);
     document.body.append(this.root);
-    this.root.addEventListener('keydown', event => { if (event.key === 'Escape') this.close(); });
+    this.root.addEventListener('keydown', event => { if (event.key === 'Escape' && this.dismissible) this.close(); });
     this.#swipeToClose();
   }
   set title(value) { this.heading.textContent = value; }
@@ -36,7 +37,11 @@ export class Sheet {
   #swipeToClose() {
     let startY = null;
     const grip = this.panel.querySelector('.sheet-grip');
-    grip.addEventListener('pointerdown', event => { startY = event.clientY; grip.setPointerCapture(event.pointerId); });
+    grip.addEventListener('pointerdown', event => {
+      if (!this.dismissible) return;
+      startY = event.clientY;
+      grip.setPointerCapture(event.pointerId);
+    });
     grip.addEventListener('pointermove', event => {
       if (startY == null) return;
       this.panel.style.transform = `translateY(${Math.max(0, event.clientY - startY)}px)`;

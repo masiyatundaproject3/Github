@@ -112,7 +112,7 @@ function publishError(error, phase) {
 export class ComposeSheet {
   constructor({ onPublished } = {}) {
     this.onPublished = onPublished;
-    this.sheet = new Sheet({ title: t('newPost'), className: 'compose-sheet creator-studio-sheet', onClose: () => {
+    this.sheet = new Sheet({ title: t('newPost'), className: 'compose-sheet creator-studio-sheet', dismissible: false, onClose: () => {
       this.wait?.stop('camera');
       this.#stopCamera();
       this.#releaseMedia();
@@ -424,10 +424,12 @@ export class ComposeSheet {
         cameraViewButton.setAttribute('aria-pressed', 'true');
         createViewButton.classList.remove('is-selected');
         createViewButton.setAttribute('aria-pressed', 'false');
-        this.captureDuration = 0;
+        this.captureDuration = 15_000;
         this.#setCaptureMode('photo');
         this.form.dataset.view = 'camera';
         this.reviewPanel.hidden = true;
+        this.stageMessage.textContent = '';
+        void this.#startCamera();
       },
     }, t('camera'));
     const createViewButton = h('button', {
@@ -564,7 +566,6 @@ export class ComposeSheet {
         this.cameraRequest++;
         this.cameraStarting = false;
         this.#stopCamera();
-        this.sheet.close();
       },
     });
     try {

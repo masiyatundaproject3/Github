@@ -1840,6 +1840,30 @@ html:is([data-mw-tone="light"],[data-mw-appearance="light"],[data-mw-appearance=
 .creator-studio-sheet :where(*)::after,
 .lc-sheet :where(*)::before,
 .lc-sheet :where(*)::after { box-shadow: none !important; }
+.host-stage :is(button, [role="button"], input[type="button"], input[type="submit"]),
+.host-stage :is(button, [role="button"], input[type="button"], input[type="submit"]) *,
+.live-slide :is(button, [role="button"], input[type="button"], input[type="submit"]),
+.live-slide :is(button, [role="button"], input[type="button"], input[type="submit"]) *,
+.go-live-sheet :is(button, [role="button"], input[type="button"], input[type="submit"]),
+.go-live-sheet :is(button, [role="button"], input[type="button"], input[type="submit"]) *,
+.creator-studio-sheet :is(button, [role="button"], input[type="button"], input[type="submit"]),
+.creator-studio-sheet :is(button, [role="button"], input[type="button"], input[type="submit"]) *,
+.lc-sheet :is(button, [role="button"], input[type="button"], input[type="submit"]),
+.lc-sheet :is(button, [role="button"], input[type="button"], input[type="submit"]) * {
+  box-shadow: none !important; filter: none !important; text-shadow: none !important;
+}
+.host-stage :is(button, [role="button"], input[type="button"], input[type="submit"])::before,
+.host-stage :is(button, [role="button"], input[type="button"], input[type="submit"])::after,
+.live-slide :is(button, [role="button"], input[type="button"], input[type="submit"])::before,
+.live-slide :is(button, [role="button"], input[type="button"], input[type="submit"])::after,
+.go-live-sheet :is(button, [role="button"], input[type="button"], input[type="submit"])::before,
+.go-live-sheet :is(button, [role="button"], input[type="button"], input[type="submit"])::after,
+.creator-studio-sheet :is(button, [role="button"], input[type="button"], input[type="submit"])::before,
+.creator-studio-sheet :is(button, [role="button"], input[type="button"], input[type="submit"])::after,
+.lc-sheet :is(button, [role="button"], input[type="button"], input[type="submit"])::before,
+.lc-sheet :is(button, [role="button"], input[type="button"], input[type="submit"])::after {
+  box-shadow: none !important; filter: none !important; text-shadow: none !important;
+}
 .host-stage :where(svg),
 .live-slide :where(svg),
 .go-live-sheet :where(svg),
@@ -1929,12 +1953,30 @@ html:is([data-mw-tone="light"],[data-mw-appearance="light"],[data-mw-appearance=
 .creator-review-back,
 .creator-review .creator-details-toggle { padding: 5px 7px; font-size: 10px; }
 .creator-review .creator-submit { min-height: 40px; }
+.lc-sheet .lc-sheet-header { min-height: 48px; margin-bottom: 5px; }
+.lc-sheet .lc-sheet-header strong { font-size: 15px; }
+.lc-sheet .lc-sheet-close,
+.lc-sheet .lc-sheet-back { width: 34px; height: 34px; font-size: 21px; }
+.lc-sheet .lc-section { gap: 6px; padding: 7px 0; }
+.lc-sheet .lc-setting-row { min-height: 42px; padding: 5px 3px; }
+.lc-sheet .lc-toggle { min-height: 40px; font-size: 12px; }
 .lc-live-settings-sheet .lc-setting-row { min-height: 42px; padding: 5px 3px; }
 .lc-live-settings-sheet .lc-sheet-close,
 .lc-multiguest-sheet .lc-sheet-back { width: 32px; height: 32px; font-size: 20px; }
 .lc-multiguest-sheet .gl-layout-card { min-height: 66px; padding: 5px; }
 .lc-multiguest-sheet .gl-layout-card > span { width: 30px; height: 25px; font-size: 18px; }
 .lc-multiguest-sheet .gl-audience-option { min-height: 36px; padding: 4px 7px; font-size: 11px; }
+.gl-multi-sheet .lc-section { gap: 6px; padding: 7px 0; }
+.gl-multi-sheet .gl-layout-cards { gap: 7px; padding: 1px 1px 5px; }
+.gl-multi-sheet .gl-layout-cards:not(.show-all) .gl-layout-card { flex-basis: min(36vw, 132px); }
+.gl-multi-sheet .gl-layout-card { gap: 5px; min-height: 66px; padding: 5px; border-radius: 12px; }
+.gl-multi-sheet .gl-layout-card > span { width: 30px; height: 25px; font-size: 18px; }
+.gl-multi-sheet .gl-layout-card b { font-size: 9px; }
+.gl-multi-sheet .gl-show-all { min-height: 30px; padding-inline: 8px; font-size: 9px; }
+.gl-multi-sheet .lc-toggle { min-height: 38px; font-size: 11px; }
+.gl-multi-sheet .gl-audience-option { gap: 8px; min-height: 36px; padding: 4px 7px; border-radius: 10px; font-size: 11px; }
+.gl-multi-sheet .gl-audience-option input { width: 16px; height: 16px; }
+.gl-prelive-settings .gl-panel-action { min-height: 32px; padding: 0 8px; border-radius: 9px; font-size: 10px; }
 
 /* Feed: sponsored slides and "Suggested for you" (woven between posts). */
 .slide[data-kind] .rail { display: none; }
