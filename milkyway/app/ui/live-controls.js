@@ -105,7 +105,7 @@ export class HostControls {
     this.openProfile = openProfile;
     this.sheets = [];
     this.guestSheet = this.#sheet(t('guests'), 'lc-sheet');
-    this.settingsSheet = this.#sheet('', 'lc-sheet');
+    this.settingsSheet = this.#sheet('', 'lc-sheet lc-live-settings-sheet');
     this.multiGuestSheet = this.#sheet('', 'lc-sheet lc-multiguest-sheet');
     this.multiGuestWait = new WaitIndicator(this.multiGuestSheet.panel);
     this.audienceSheet = this.#sheet('', 'lc-sheet');

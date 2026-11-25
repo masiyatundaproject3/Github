@@ -43,7 +43,7 @@ function liveChrome({ host = false } = {}) {
   const name = h('b', { class: 'live-host-name' });
   const follow = h('button', { class: 'live-follow', type: 'button', 'data-act': 'follow' }, t('follow'));
   const viewers = h(host ? 'button' : 'span', { class: 'live-viewers', ...(host ? { type: 'button', 'data-act': 'viewers', 'aria-label': t('viewersTitle') } : {}) }, h('span', { html: icon.eye }), h('b', {}, '0'));
-  const close = h('button', { class: 'icon-btn live-close', type: 'button', 'data-act': host ? 'end' : 'close', 'aria-label': host ? t('end') : t('close'), html: icon.close });
+  const close = h('button', { class: 'icon-btn live-close', type: 'button', 'data-act': host ? 'end' : 'close', 'aria-label': host ? t('end') : t('close'), html: host ? icon.power : icon.close });
   const cover = h('div', { class: 'live-cover' }, h('span', { class: 'avatar live-cover-avatar', style: '--s:96px' }), h('p', { class: 'live-cover-title' }), h('span', { class: 'live-badge' }, t('live')));
   const background = h('div', { class: 'live-host-background', hidden: true, 'aria-hidden': 'true' },
     h('img', { class: 'live-host-background-image', alt: '', hidden: true }),
