@@ -42,7 +42,10 @@ function liveChrome({ host = false } = {}) {
   const avatarNode = h('span', { class: 'avatar', style: '--s:34px' });
   const name = h('b', { class: 'live-host-name' });
   const follow = h('button', { class: 'live-follow', type: 'button', 'data-act': 'follow' }, t('follow'));
-  const viewers = h(host ? 'button' : 'span', { class: 'live-viewers', ...(host ? { type: 'button', 'data-act': 'viewers', 'aria-label': t('viewersTitle') } : {}) }, h('span', { html: icon.eye }), h('b', {}, '0'));
+  const viewers = h(host ? 'button' : 'span', {
+    class: 'live-viewers', 'aria-label': t('viewersTitle'), title: t('viewersTitle'),
+    ...(host ? { type: 'button', 'data-act': 'viewers' } : { role: 'status', 'aria-live': 'polite' }),
+  }, h('span', { html: icon.eye }), h('b', {}, '0'));
   const close = h('button', { class: 'icon-btn live-close', type: 'button', 'data-act': host ? 'end' : 'close', 'aria-label': host ? t('end') : t('close'), html: host ? icon.power : icon.close });
   const cover = h('div', { class: 'live-cover' }, h('span', { class: 'avatar live-cover-avatar', style: '--s:96px' }), h('p', { class: 'live-cover-title' }), h('span', { class: 'live-badge' }, t('live')));
   const background = h('div', { class: 'live-host-background', hidden: true, 'aria-hidden': 'true' },
@@ -87,6 +90,10 @@ function liveChrome({ host = false } = {}) {
   const stageLabel = h('span', { class: 'stage-label' }, t('requestJoin'));
   const stageBtn = h('button', { class: 'live-join-btn', type: 'button', 'data-act': 'stage', 'data-no-swipe': true, 'aria-label': t('requestJoin'), title: t('requestJoin') },
     h('span', { class: 'stage-icon', html: icon.guests, 'aria-hidden': 'true' }), stageLabel);
+  const entryChoice = host ? null : h('aside', { class: 'live-entry-choice', hidden: true, 'data-no-swipe': true },
+    h('div', {}, h('strong', {}, t('liveWatchChoice')), h('small', {}, t('viewers'), ': ', h('b', { class: 'live-entry-choice-count' }, '–'))),
+    h('button', { class: 'live-entry-choice-request', type: 'button', 'data-act': 'stage' }, t('requestJoin')),
+    h('button', { class: 'live-entry-choice-watch', type: 'button', 'data-act': 'watch' }, t('liveContinueWatching')));
   const giftBtn = h('button', { class: 'icon-btn gift', type: 'button', 'data-act': 'gift', 'data-no-swipe': true, 'aria-label': t('gift'), title: t('gift'), html: icon.gift });
   const likeBtn = h('button', { class: 'icon-btn like', type: 'button', 'data-act': 'like', 'aria-label': 'Like', html: icon.heart });
   const bar = h('div', { class: 'live-bar' }, ...(host ? [tools, form] : [form]),
@@ -110,8 +117,8 @@ function liveChrome({ host = false } = {}) {
   const top = h('div', { class: 'live-top' },
     h('div', { class: 'live-host', 'data-act': 'profile' }, avatarNode, h('div', {}, name, h('small', { class: 'live-tag' }, t('live'))), host ? null : follow),
     viewers, close);
-  const node = h('section', { class: 'slide live-slide' }, grid, brandMark('live'), h('div', { class: 'shade' }), resting, top, host ? null : tools, pinned, comments, hearts, banner, state, host ? requests : null, hostNotices, hostActions, bar);
-  node._refs = { avatarNode, name, follow, viewers: viewers.querySelector('b'), viewersWrap: viewers, cover, background, stage, guests, grid, hostLabel, requests, pinned, comments, hearts, banner, state, resting, input, form, tools, micBtn, voiceBtn, camBtn, stageBtn, stageLabel, giftBtn, likeBtn, guestsBadge, seatCount };
+  const node = h('section', { class: 'slide live-slide' }, grid, brandMark('live'), h('div', { class: 'shade' }), resting, top, host ? null : tools, entryChoice, pinned, comments, hearts, banner, state, host ? requests : null, hostNotices, hostActions, bar);
+  node._refs = { avatarNode, name, follow, viewers: viewers.querySelector('b'), viewersWrap: viewers, cover, background, stage, guests, grid, hostLabel, requests, pinned, comments, hearts, banner, state, resting, input, form, tools, micBtn, voiceBtn, camBtn, stageBtn, stageLabel, entryChoice, choiceCount: entryChoice?.querySelector('.live-entry-choice-count'), giftBtn, likeBtn, guestsBadge, seatCount };
   // Re-arrange the grid whenever a guest tile appears or leaves (tiles come from both room status and video tracks).
   new MutationObserver(() => layoutGrid(node)).observe(guests, { childList: true });
   return node;
@@ -161,6 +168,10 @@ function resetStage(slide) {
   r.stageLabel.textContent = t('requestJoin');
   r.stageBtn.setAttribute('aria-label', t('requestJoin'));
   r.stageBtn.title = t('requestJoin');
+  if (r.entryChoice) {
+    r.entryChoice.hidden = true;
+    r.choiceCount.textContent = '–';
+  }
   r.grid.dataset.tiles = '1';
   r.grid.dataset.layout = 'fullscreen';
   slide.dataset.layout = 'fullscreen';
@@ -345,6 +356,7 @@ function paintStageButton(slide, session) {
   r.stageLabel.textContent = label;
   r.stageBtn.setAttribute('aria-label', label);
   r.stageBtn.title = label;
+  if (r.entryChoice && stage !== 'audience') r.entryChoice.hidden = true;
   slide.classList.toggle('can-request', !r.stageBtn.hidden);
   slide.classList.toggle('on-stage', stage === 'guest');
 }
@@ -462,7 +474,10 @@ function connectUi(slide, session) {
     }),
     session.on('facing', facing => slide.querySelectorAll('.live-track.local').forEach(element => element.classList.toggle('mirror', facing !== 'environment'))),
     session.on('audio', element => audio.append(element)),
-    session.on('viewers', n => { r.viewers.textContent = count(n); }),
+    session.on('viewers', n => {
+      r.viewers.textContent = count(n);
+      if (r.choiceCount) r.choiceCount.textContent = count(n);
+    }),
     session.on('comment', event => {
       if (r.comments.querySelector(`[data-id="${cssId(event.id)}"]`)) return;
       const line = h('p', { class: event.uid === auth.userId ? 'mine' : '', 'data-id': cssId(event.id), 'data-uid': event.uid || '' },
@@ -561,9 +576,9 @@ function voicePicker(session) {
 }
 
 export class LiveView {
-  constructor(root, { requireLogin, openGifts, openProfile, onClose }) {
+  constructor(root, { requireLogin, openGifts, openProfile, onClose, openRoom, listenLive, takeAmbientSession }) {
     this.root = root;
-    this.hooks = { requireLogin, openGifts, openProfile, onClose };
+    this.hooks = { requireLogin, openGifts, openProfile, onClose, openRoom, listenLive, takeAmbientSession };
     this.session = null;
     this.unbind = null;
     this.pending = null; // room to focus when the list arrives
@@ -576,6 +591,10 @@ export class LiveView {
     this.goPreviewVideo = null;
     this.goPreviewError = null;
     this.goWait = null;
+    this.directorySheet = new Sheet({ title: t('liveDirectory'), className: 'live-directory-sheet', autoFocus: false });
+    this.directoryStatus = h('p', { class: 'live-directory-status', role: 'status', 'aria-live': 'polite' });
+    this.directoryRows = h('div', { class: 'live-directory-rows' });
+    this.directorySheet.body.append(this.directoryStatus, this.directoryRows);
     this.surface = h('div', { class: 'live-pager', tabindex: '0', 'aria-label': 'LIVE' });
     this.empty = h('div', { class: 'live-empty', hidden: true },
       h('p', {}, t('noLives')),
@@ -596,7 +615,57 @@ export class LiveView {
     document.addEventListener('visibilitychange', () => this.#syncViewerLifecycle());
     window.addEventListener('blur', () => { this.viewerWindowBlurred = true; this.#syncViewerLifecycle(); });
     window.addEventListener('focus', () => { this.viewerWindowBlurred = false; this.#syncViewerLifecycle(); });
-    lives.subscribe(list => this.#apply(list));
+    lives.subscribe(list => { this.#apply(list); this.#renderDirectory(list); });
+  }
+
+  openDirectory() {
+    this.#renderDirectory(lives.value);
+    this.directorySheet.open();
+    watchLives().catch(error => console.warn('[live] directory realtime unavailable', error));
+    lives.load().catch(error => {
+      console.warn('[live] directory refresh failed', error);
+      this.directoryStatus.textContent = t('liveLoadFailed');
+    });
+  }
+
+  #renderDirectory(list) {
+    if (!Array.isArray(list)) {
+      this.directoryStatus.textContent = t('loading');
+      this.directoryRows.replaceChildren();
+      return;
+    }
+    if (!list.length) {
+      this.directoryStatus.textContent = t('noLives');
+      this.directoryRows.replaceChildren();
+      return;
+    }
+    this.directoryStatus.textContent = `${list.length} ${t('liveRoomsNow')}`;
+    this.directoryRows.replaceChildren(...list.map(live => {
+      const face = h('span', { class: 'avatar', style: '--s:38px' });
+      paintAvatar(face, live.host, 38);
+      const watch = h('button', { class: 'live-directory-watch', type: 'button', onclick: () => {
+        this.directorySheet.close();
+        this.hooks.openRoom?.(live.room);
+      } }, t('liveWatch'));
+      const listen = h('button', { class: 'live-directory-listen', type: 'button', onclick: async () => {
+        listen.disabled = true;
+        try {
+          await this.hooks.listenLive?.(live);
+          this.directorySheet.close();
+        } catch (error) {
+          const message = String(error?.message || '').replace(/\b(?:null|undefined)\b/gi, '').trim();
+          toast(message || t('liveUnavailable'));
+        } finally {
+          listen.disabled = false;
+        }
+      } }, t('liveListenWhileBrowsing'));
+      return h('article', { class: 'live-directory-room' }, face,
+        h('div', { class: 'live-directory-copy' },
+          h('strong', {}, displayName(live.host?.name)),
+          h('small', {}, live.title || t('live')),
+          h('span', { class: 'live-directory-status-tag' }, t('liveNow'))),
+        h('div', { class: 'live-directory-actions' }, watch, listen));
+    }));
   }
 
   open(room = null) {
@@ -647,7 +716,7 @@ export class LiveView {
       slide._refs.state.replaceChildren(h('button', { class: 'pill-btn', type: 'button', onclick: () => this.hooks.requireLogin() }, t('signInToContinue')));
       return;
     }
-    const session = new LiveSession(live);
+    const session = this.hooks.takeAmbientSession?.(live.room) || new LiveSession(live);
     this.session = session;
     this.voicePicker = voicePicker(session);
     this.activeSlide = slide;
@@ -673,7 +742,18 @@ export class LiveView {
       this.invite = new InvitePrompt(session, live.host.name);
       this.invite.open();
     });
-    try { await session.join(); this.#syncViewerLifecycle(); }
+    try {
+      if (session.room?.state === 'connected') {
+        const audio = slide.querySelector('.live-audio');
+        session.audioElements?.forEach(element => audio?.append(element));
+        if (session.status) applyRoom(slide, session, session.status);
+        slide._refs.viewers.textContent = count(session.viewers);
+        if (slide._refs.choiceCount) slide._refs.choiceCount.textContent = count(session.viewers);
+      } else await session.join();
+      session.setAudioOnly(false);
+      if (slide._refs.entryChoice) slide._refs.entryChoice.hidden = session.host || session.stage !== 'audience';
+      this.#syncViewerLifecycle();
+    }
     catch (error) {
       if (this.session !== session) return;
       console.warn('[live] join failed', error);
@@ -793,7 +873,13 @@ export class LiveView {
       else if (act === 'stage') {
         // The button is in the bar from the first frame; until the room is connected a tap just says so.
         if (!this.hooks.requireLogin()) return;
-        if (this.session && slide === this.activeSlide) this.#stageRequest(); else toast(t('joining'));
+        if (this.session && slide === this.activeSlide) {
+          if (slide._refs.entryChoice) slide._refs.entryChoice.hidden = true;
+          this.#stageRequest();
+        } else toast(t('joining'));
+      }
+      else if (act === 'watch') {
+        if (slide === this.activeSlide && slide._refs.entryChoice) slide._refs.entryChoice.hidden = true;
       }
       else if (act === 'leave-stage') {
         if (this.activeSlide) this.activeSlide._selfCancelled = true;

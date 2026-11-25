@@ -32,7 +32,14 @@
 
 <div class="cosmos-bg" aria-hidden="true"></div>
 <header class="topbar">
-  <button id="liveEntry" class="live-entry" type="button" aria-label="LIVE"><span data-i18n="live">LIVE</span></button>
+  <button id="liveEntry" class="live-entry" type="button" aria-label="LIVE">
+    <span data-i18n="live">LIVE</span><span id="liveEntryBadge" class="live-entry-badge" hidden aria-hidden="true"></span>
+  </button>
+  <div id="liveAmbientControls" class="live-ambient-controls" hidden>
+    <span data-i18n="liveListening">Listening to LIVE</span>
+    <button id="liveAmbientMute" type="button" aria-label="Mute LIVE preview" title="Mute LIVE preview" aria-pressed="false">◖</button>
+    <button id="liveAmbientClose" type="button" aria-label="Close LIVE preview" title="Close LIVE preview">×</button>
+  </div>
   <span class="brand-mark" aria-hidden="true">Milky Way</span>
   <nav class="scope-tabs" role="tablist" aria-label="Feed">
     <button type="button" role="tab" data-scope="foryou" aria-selected="true" data-i18n="forYou">For You</button>

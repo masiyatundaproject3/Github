@@ -119,11 +119,13 @@ export class LiveSession extends Emitter {
     return Promise.all([loadLiveKit(), fetchToken(live, false)]);
   }
 
-  constructor(live, { host = false, mode = live.mode || 'video' } = {}) {
+  constructor(live, { host = false, mode = live.mode || 'video', audioOnly = false } = {}) {
     super();
     this.live = live;
     this.host = host;
     this.mode = mode;
+    this.audioOnly = audioOnly;
+    this.audioMuted = false;
     this.room = null;
     this.channel = null;
     this.seen = new Set();
@@ -135,6 +137,7 @@ export class LiveSession extends Emitter {
     this.approving = new Set();
     this.stageAction = null;
     this.entered = false;    // true after the first connection of this visit; later joins are reconnects
+    this.joinPromise = null;
     this.stage = host ? 'host' : 'audience';
     this.voicePreset = 'normal';
     this.voiceCapture = null;
@@ -191,7 +194,16 @@ export class LiveSession extends Emitter {
   }
 
   /** Connects media + event channels. Resolves when watching (or throws with a readable message). */
-  async join() {
+  join() {
+    if (this.joinPromise) return this.joinPromise;
+    const pending = this.#join();
+    this.joinPromise = pending;
+    return pending.finally(() => {
+      if (this.joinPromise === pending) this.joinPromise = null;
+    });
+  }
+
+  async #join() {
     this.emit('state', 'connecting');
     if (!this.channel) this.#openRealtime(); // in parallel; never blocks the video
     const rejoin = this.entered;
@@ -333,6 +345,23 @@ export class LiveSession extends Emitter {
     try { await this.room?.disconnect(); } catch {}
     try { if (this.channel) (await supabase()).removeChannel(this.channel); } catch {}
     this.room = null; this.channel = null;
+  }
+
+  setAudioMuted(muted) {
+    this.audioMuted = !!muted;
+    this.audioElements?.forEach(element => { element.muted = this.audioMuted; });
+    if (!this.audioMuted) return this.resumeAudio();
+    return Promise.resolve();
+  }
+
+  setAudioOnly(audioOnly) {
+    const wasAudioOnly = this.audioOnly;
+    this.audioOnly = !!audioOnly;
+    if (wasAudioOnly && !this.audioOnly) {
+      for (const participant of this.room?.remoteParticipants.values() || []) {
+        for (const publication of participant.trackPublications.values()) this.#subscribe(publication, participant);
+      }
+    }
   }
 
   /** Unlocks audio after a user gesture (mobile autoplay policies): LiveKit playback plus every remote <audio>. */
@@ -733,6 +762,7 @@ export class LiveSession extends Emitter {
   // (only they hold publish rights, so nobody else has a track to receive).
   #subscribe(publication, participant) {
     if (!participant || participant.isLocal || participant.identity === auth.userId) return;
+    if (this.audioOnly && publication.kind !== 'audio') return;
     if (!publication.isSubscribed && typeof publication.setSubscribed === 'function') publication.setSubscribed(true);
   }
 
@@ -743,7 +773,7 @@ export class LiveSession extends Emitter {
       const el = track.attach();
       el.autoplay = true;
       el.playsInline = true;
-      el.muted = false;
+      el.muted = this.audioMuted;
       el.dataset.uid = participant?.identity || '';
       (this.audioElements ||= new Set()).add(el);
       this.emit('audio', el); // the UI puts it in the page
@@ -769,7 +799,7 @@ export class LiveSession extends Emitter {
   // Mobile autoplay: the first tap anywhere on the page after audio was blocked turns playback on.
   #installAudioUnlock() {
     if (this.unlockAudio) return;
-    this.unlockAudio = () => { if (!this.closed) this.resumeAudio(); };
+    this.unlockAudio = () => { if (!this.closed && !this.audioMuted) this.resumeAudio(); };
     for (const type of ['pointerdown', 'touchend', 'keydown']) document.addEventListener(type, this.unlockAudio, { capture: true, passive: true });
   }
   #removeAudioUnlock() {

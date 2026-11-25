@@ -78,10 +78,106 @@ function openPost(post) {
     viewer.open([{ ...post, _counted: true }], 0, { own: false, onClose: () => { if (shell.dataset.view === 'home') playback.suspend(false); } });
   }).catch(() => { playback.suspend(shell.dataset.view !== 'home'); toast(t('imageUnavailable')); });
 }
+let ambientLiveSession = null;
+let ambientLiveRequest = 0;
+let ambientLiveMuted = true;
+const ambientControls = $('liveAmbientControls');
+const ambientMuteButton = $('liveAmbientMute');
+const ambientCloseButton = $('liveAmbientClose');
+function paintAmbientControls() {
+  const active = !!ambientLiveSession;
+  if (ambientControls) ambientControls.hidden = !active;
+  if (ambientCloseButton) {
+    ambientCloseButton.setAttribute('aria-label', t('liveClosePreview'));
+    ambientCloseButton.title = t('liveClosePreview');
+  }
+  if (!ambientMuteButton) return;
+  ambientMuteButton.textContent = ambientLiveMuted ? '◖' : '◖))';
+  ambientMuteButton.setAttribute('aria-label', t(ambientLiveMuted ? 'liveUnmutePreview' : 'liveMutePreview'));
+  ambientMuteButton.title = t(ambientLiveMuted ? 'liveUnmutePreview' : 'liveMutePreview');
+  ambientMuteButton.setAttribute('aria-pressed', String(!ambientLiveMuted));
+}
+async function listenLive(live) {
+  if (!requireLogin()) throw new Error(t('signInToContinue'));
+  if (!live?.room) throw new Error(t('liveUnavailable'));
+  const request = ++ambientLiveRequest;
+  if (ambientLiveSession?.live.room === live.room) {
+    ambientLiveMuted = false;
+    await ambientLiveSession.setAudioMuted(false);
+    paintAmbientControls();
+    return;
+  }
+  const previous = ambientLiveSession;
+  ambientLiveSession = null;
+  paintAmbientControls();
+  await previous?.leave();
+  const { LiveSession } = await import('./ui/live-session.js');
+  if (request !== ambientLiveRequest || shell.dataset.view !== 'home') return;
+  const session = new LiveSession(live, { audioOnly: true });
+  ambientLiveSession = session;
+  ambientLiveMuted = playback.muted;
+  session.setAudioMuted(ambientLiveMuted);
+  paintAmbientControls();
+  try {
+    await session.join();
+    if (request === ambientLiveRequest && ambientLiveSession === session) session.setAudioMuted(ambientLiveMuted);
+  } catch (error) {
+    if (ambientLiveSession === session) {
+      ambientLiveSession = null;
+      paintAmbientControls();
+    }
+    await session.leave();
+    if (request !== ambientLiveRequest) return;
+    throw error;
+  }
+}
+function takeAmbientSession(room) {
+  const session = ambientLiveSession;
+  if (!session) return null;
+  ambientLiveSession = null;
+  ambientLiveRequest++;
+  paintAmbientControls();
+  if (session.live.room === room) return session;
+  void session.leave();
+  return null;
+}
+ambientMuteButton?.addEventListener('click', () => {
+  if (!ambientLiveSession) return;
+  ambientLiveMuted = !ambientLiveMuted;
+  ambientLiveSession.setAudioMuted(ambientLiveMuted).catch(error => {
+    console.warn('[live] audio preview playback could not be updated', error);
+    toast(t('liveAudioUnavailable'));
+  });
+  paintAmbientControls();
+});
+ambientCloseButton?.addEventListener('click', () => {
+  const session = ambientLiveSession;
+  ambientLiveSession = null;
+  ambientLiveRequest++;
+  paintAmbientControls();
+  void session?.leave();
+});
+bus.on('auth', () => {
+  if (auth.signedIn()) return;
+  const session = ambientLiveSession;
+  ambientLiveSession = null;
+  ambientLiveRequest++;
+  paintAmbientControls();
+  void session?.leave();
+});
+playback.onMute(muted => {
+  if (!ambientLiveSession) return;
+  ambientLiveMuted = muted;
+  ambientLiveSession.setAudioMuted(muted).catch(error => console.warn('[live] ambient audio mute could not be applied', error));
+  paintAmbientControls();
+});
 const discoveryView = lazy(() => import('./ui/discovery-view.js').then(m => new m.DiscoveryView($('exploreView'), { openProfile, openPost })));
 const liveView = lazy(() => import('./ui/live-view.js').then(m => new m.LiveView($('liveView'), {
   requireLogin, openProfile, onClose: () => showHome(),
   onPreliveClose: () => playback.suspend(shell.dataset.view !== 'home'),
+  openRoom: room => showLive(room),
+  listenLive,
+  takeAmbientSession,
   openStudio: view => composeSheet().then(sheet => sheet.open(view)),
   openGifts: target => giftTray().then(tray => tray.open(target)),
 })));
@@ -98,6 +194,12 @@ function openProfile(person = null, options = {}) {
 }
 function openCreate() {
   if (requireLogin()) composeSheet().then(sheet => sheet.open());
+}
+function openLiveDirectory() {
+  liveView().then(view => view.openDirectory()).catch(error => {
+    console.error('[live] directory could not be opened', error);
+    toast(t('liveUnavailable'));
+  });
 }
 
 // ---- Feed ---------------------------------------------------------------------------------------------------
@@ -193,7 +295,7 @@ document.addEventListener('click', event => {
   if (!target) return;
   if (target.dataset.scope) { if (shell.dataset.view !== 'home') showHome(); setScope(target.dataset.scope); return; }
   if (target.hasAttribute('data-community')) { openCommunity(); return; }
-  if (target.id === 'liveEntry') { openGoLive(); return; }
+  if (target.id === 'liveEntry') { openLiveDirectory(); return; }
   if (target.id === 'profileSearch') { profileSearch().then(view => view.open()); return; }
   const nav = target.dataset.nav;
   if (nav === 'home') { if (shell.dataset.view === 'home') feedView.reload(); else showHome(); }
@@ -296,9 +398,22 @@ idle(() => {
   profiles.loadFollowing();
   startSignedIn();
   // LIVE badge: show when someone is live (cached list first, quiet refresh).
-  import('./data/live.js').then(({ lives }) => {
-    lives.subscribe(list => $('liveEntry')?.classList.toggle('has-live', (list?.length || 0) > 0));
-    lives.load();
+  import('./data/live.js').then(({ lives, watchLives }) => {
+    lives.subscribe(list => {
+      const count = Array.isArray(list) ? list.length : 0;
+      const button = $('liveEntry');
+      const badge = $('liveEntryBadge');
+      button?.classList.toggle('has-live', count > 0);
+      if (badge) {
+        badge.hidden = count === 0;
+        badge.textContent = count > 9 ? '9+' : String(count);
+        badge.setAttribute('aria-label', count ? `${count} ${t('liveRoomsNow')}` : '');
+      }
+      button?.setAttribute('aria-label', count ? `${t('live')} · ${count} ${t('liveRoomsNow')}` : t('live'));
+      button?.setAttribute('title', count ? `${count} ${t('liveRoomsNow')}` : t('live'));
+    });
+    watchLives().catch(error => console.warn('[live] realtime directory updates unavailable', error));
+    lives.load().catch(error => console.warn('[live] directory list unavailable', error));
   });
   if ('serviceWorker' in navigator) {
     // Notification taps forwarded by the worker: Lives and calls open here.
