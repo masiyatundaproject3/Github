@@ -915,9 +915,13 @@ export class LiveView {
     this.goPreviewVideo = h('video', { class: 'gl-preview-video', autoplay: true, muted: true, playsinline: true, 'aria-label': t('camera') });
     this.goPreviewError = h('p', { class: 'gl-preview-error', role: 'status', 'aria-live': 'polite' });
     const close = h('button', { class: 'gl-close', type: 'button', 'aria-label': t('close'), onclick: () => sheet.close() }, '×');
-    const rewards = h('button', { class: 'gl-rewards', type: 'button', onclick: () => toast(t('soon')) }, '✦ ', t('liveRewards'));
+    const rewardsSheet = new Sheet({ title: t('liveRewards'), className: 'lc-sheet gl-rewards-sheet', autoFocus: false });
+    const readinessSheet = new Sheet({ title: t('liveRoomCheck'), className: 'lc-sheet gl-readiness-sheet', autoFocus: false });
+    const rewards = h('button', { class: 'gl-rewards', type: 'button', onclick: () => openRewards() }, '✦ ', t('liveRewards'));
+    const readiness = h('button', { class: 'gl-readiness-button', type: 'button', 'aria-label': t('liveRoomCheck'), title: t('liveRoomCheck'), onclick: () => openReadiness() },
+      h('span', { html: icon.live, 'aria-hidden': 'true' }));
     const statusIcons = h('div', { class: 'gl-status-actions' },
-      h('button', { type: 'button', 'aria-label': t('liveSettings'), onclick: () => { details.hidden = !details.hidden; } },
+      h('button', { type: 'button', 'aria-label': t('liveSettings'), title: t('liveSettings'), onclick: () => preliveSettings.open() },
         h('span', { html: icon.gear, 'aria-hidden': 'true' })));
     const mission = h('aside', { class: 'gl-mission' },
       h('span', { 'aria-hidden': 'true' }, '✦'), h('span', {}, t('liveMissionHint')),
@@ -929,18 +933,19 @@ export class LiveView {
     };
     const tool = (label, symbol, handler) => h('button', {
       class: 'gl-tool', type: 'button', 'aria-label': label, onclick: handler,
-    }, h('span', { 'aria-hidden': 'true' }, symbol), h('small', {}, label));
+    }, h('span', { 'aria-hidden': 'true', ...(symbol.trimStart().startsWith('<svg') ? { html: symbol } : {}) },
+      symbol.trimStart().startsWith('<svg') ? '' : symbol), h('small', {}, label));
     const toolRows = h('div', { class: 'gl-tool-grid' },
       tool(t('flipCamera'), '↻', () => { void this.#flipGoLivePreview(); }),
       tool(t('beautify'), '✧', event => togglePreviewEffect(event.currentTarget, 'beautified')),
       tool(t('effects'), '✦', event => togglePreviewEffect(event.currentTarget, 'effects-on')),
-      tool(t('liveSettings'), '⚙', () => { details.hidden = !details.hidden; }),
+      tool(t('liveSettings'), '⚙', () => preliveSettings.open()),
       tool(t('multiGuest'), '♧', () => guestSheet.open()),
-      tool(t('servicePlus'), '✚', () => toast(t('soon'))),
-      tool(t('fanClub'), '♕', () => toast(t('soon'))),
-      tool(t('interact'), '♡', () => toast(t('soon'))),
-      tool(t('share'), '↗', () => toast(t('soon'))),
-      tool(t('promote'), '↟', () => toast(t('soon'))));
+      tool(t('servicePlus'), '✚', () => preliveSettings.open()),
+      tool(t('fanClub'), '♕', () => openRewards()),
+      tool(t('interact'), '♡', () => openRewards()),
+      tool(t('share'), '↗', () => openPreliveShare()),
+      tool(t('promote'), '↟', () => openPreliveShare()));
     const title = h('input', { class: 'gl-title', type: 'text', maxlength: '80', placeholder: t('liveTitle'), 'aria-label': t('liveTitle'), enterkeyhint: 'go' });
     const goalInput = h('input', { class: 'gl-goal-input', type: 'text', maxlength: '80', placeholder: t('liveGoalPlaceholder'), 'aria-label': t('liveGoalPlaceholder'), hidden: true });
     const goal = h('button', { class: 'gl-goal-button', type: 'button', onclick: () => {
@@ -986,6 +991,60 @@ export class LiveView {
         h('option', { value: 'everyone' }, t('commentsEveryone')),
         h('option', { value: 'followers' }, t('commentsFollowers')),
         h('option', { value: 'off' }, t('commentsOff')))));
+    const preliveSettings = new Sheet({ title: t('liveSettings'), className: 'lc-sheet gl-prelive-settings', autoFocus: false });
+    preliveSettings.body.append(details);
+    details.hidden = false;
+    const readinessRow = (label, value, ready = false) => h('div', { class: 'gl-check-row' },
+      h('span', {}, label), h('b', { class: ready ? 'is-ready' : 'is-pending' }, value));
+    const hasCameraPreview = () => this.goPreviewStream?.getVideoTracks().some(track => track.readyState === 'live' && track.enabled) || false;
+    const openReadiness = () => {
+      const videoMode = this.goMode !== 'audio';
+      const cameraReady = !videoMode || hasCameraPreview();
+      readinessSheet.body.replaceChildren(
+        h('section', { class: 'gl-panel-section' },
+          h('h3', {}, t('liveReadiness')),
+          readinessRow(t('camera'), !videoMode ? t('liveCameraNotUsed') : cameraReady ? t('liveCameraReady') : t('liveCameraPreparing'), cameraReady),
+          readinessRow(t('microphone'), t('liveMicStandby')),
+          readinessRow(t('live'), t('liveNotStarted')),
+          readinessRow(t('streamMode'), t(videoMode ? 'liveVideoMode' : 'liveAudioMode'), true),
+          readinessRow(t('liveAudience'), scope === 'followers' ? t('followersOnly') : t('everyone'), true)),
+        h('p', { class: 'gl-panel-note' }, t('liveMicReadinessNote')));
+      readinessSheet.open();
+    };
+    const openRewards = () => {
+      const videoReady = this.goMode === 'audio' || hasCameraPreview();
+      const missions = [
+        [t('liveTitleMission'), !!title.value.trim()],
+        [t('liveGoalMission'), !!goalInput.value.trim()],
+        [t(this.goMode === 'audio' ? 'liveCameraNotUsed' : 'liveCameraMission'), videoReady],
+      ];
+      const completed = missions.filter(([, done]) => done).length;
+      const goalAction = h('button', { class: 'gl-panel-action', type: 'button', onclick: () => {
+        rewardsSheet.close();
+        goalInput.hidden = false;
+        requestAnimationFrame(() => goalInput.focus({ preventScroll: true }));
+      } }, t('setLiveGoal'));
+      const layoutAction = h('button', { class: 'gl-panel-action', type: 'button', onclick: () => { rewardsSheet.close(); guestSheet.open(); } }, t('multiGuest'));
+      rewardsSheet.body.replaceChildren(
+        h('section', { class: 'gl-panel-section' },
+          h('h3', {}, t('liveMissions')),
+          ...missions.map(([label, done]) => readinessRow(label, t(done ? 'missionReady' : 'missionPending'), done)),
+          h('div', { class: 'gl-progress-track', role: 'progressbar', 'aria-label': t('liveMissions'), 'aria-valuemin': '0', 'aria-valuemax': String(missions.length), 'aria-valuenow': String(completed) },
+            h('span', { style: `width:${Math.round(completed / missions.length * 100)}%` }))),
+        h('section', { class: 'gl-panel-section' },
+          h('h3', {}, t('viewerEngagementGoals')),
+          h('p', { class: 'gl-panel-note' }, t('engagementStartsLive')),
+          goalAction, layoutAction),
+        h('section', { class: 'gl-panel-section' },
+          h('h3', {}, t('creatorRewardProgress')),
+          h('p', { class: 'gl-panel-note' }, t('rewardProgressHint'))));
+      rewardsSheet.open();
+    };
+    const openPreliveShare = () => openShare({
+      title: title.value.trim() || t('live'),
+      text: t('shareLiveInvite'),
+      url: `${location.origin}${location.pathname.replace(/[^/]*$/, '')}`,
+    });
     const guestSheet = new Sheet({ title: t('multiGuestSettings'), className: 'lc-sheet gl-multi-sheet' });
     const guestLayoutCards = [
       ['fullscreen', 2, t('layoutFullScreen')], ['featured', 3, t('layoutFluidPanel')],
@@ -1043,7 +1102,7 @@ export class LiveView {
       }, label)));
     sheet.body.append(h('div', { class: 'gl-preview' }, this.goPreviewVideo,
       h('div', { class: 'gl-preview-overlay' }),
-      h('header', { class: 'gl-topbar' }, close, h('div', { class: 'gl-top-actions' }, rewards, statusIcons)),
+      h('header', { class: 'gl-topbar' }, close, h('div', { class: 'gl-top-actions' }, rewards, readiness, statusIcons)),
       mission, this.goPreviewError),
     h('form', { class: 'gl-form', onsubmit: event => {
       event.preventDefault();
@@ -1056,7 +1115,7 @@ export class LiveView {
         comments, layout, layoutStyle, allowRequests: true, showGuestSlots: true,
       });
     } },
-    toolRows, titleRow, goalInput, start, modeRow, dock, details));
+    toolRows, titleRow, goalInput, start, modeRow, dock));
     return sheet;
   }
 
