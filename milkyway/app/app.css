@@ -380,6 +380,9 @@ html[data-view="explore"] .topbar { display: none; }
 .live-tools .live-voice-btn.active { color: #fff; background: rgba(156,91,255,.62); box-shadow: 0 0 0 2px rgba(190,145,255,.35); }
 .live-tools .icon-btn.leave { color: #ff6b8b; }
 .live-tools .icon-btn.locked { color: #ff6b8b; opacity: .7; box-shadow: inset 0 0 0 1.5px rgba(255,107,139,.6); }
+.host-stage .live-bar { gap: 6px; }
+.host-stage .live-bar .live-tools { position: static; top: auto; right: auto; bottom: auto; flex: none; flex-direction: row; gap: 4px; }
+.host-stage .live-bar .live-tools .icon-btn { width: 36px; height: 36px; }
 /* Host-only controls on each guest box: mute / allow mic, back to audience, remove from LIVE. */
 .live-guest-tools { position: absolute; z-index: 2; top: 4px; left: 4px; display: flex; gap: 4px; }
 .live-guest-btn { width: 24px; height: 24px; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer;
@@ -399,6 +402,7 @@ html[data-view="explore"] .topbar { display: none; }
 .live-seat-count { white-space: nowrap; font-size: 10px; font-weight: 800; color: rgba(255,255,255,.82); }
 .live-bar .stage-btn { color: var(--accent-2); }
 .live-bar .stage-btn.pending { color: #ffc93c; animation: livePulse 1.6s ease-in-out infinite; }
+.host-stage ~ .sheet-layer { z-index: 70; }
 
 /* ---- LIVE multi-guest grid (TikTok-style): host alone = full screen; with guests the stage splits into tiles ---- */
 .live-grid { position: absolute; inset: 0; display: grid; grid-template: 1fr / 1fr; gap: 3px; transition: top .25s var(--ease), height .25s var(--ease); }

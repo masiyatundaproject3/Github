@@ -89,7 +89,7 @@ function liveChrome({ host = false } = {}) {
     h('span', { class: 'stage-icon', html: icon.guests, 'aria-hidden': 'true' }), stageLabel);
   const giftBtn = h('button', { class: 'icon-btn gift', type: 'button', 'data-act': 'gift', 'data-no-swipe': true, 'aria-label': t('gift'), title: t('gift'), html: icon.gift });
   const likeBtn = h('button', { class: 'icon-btn like', type: 'button', 'data-act': 'like', 'aria-label': 'Like', html: icon.heart });
-  const bar = h('div', { class: 'live-bar' }, form,
+  const bar = h('div', { class: 'live-bar' }, ...(host ? [tools, form] : [form]),
     ...(host ? [] : [stageBtn, giftBtn, likeBtn,
       h('button', { class: 'icon-btn', type: 'button', 'data-act': 'share', 'aria-label': t('share'), html: icon.share })]));
   const hostAction = (act, label, symbol, attributes = {}) => h('button', {
@@ -110,7 +110,7 @@ function liveChrome({ host = false } = {}) {
   const top = h('div', { class: 'live-top' },
     h('div', { class: 'live-host', 'data-act': 'profile' }, avatarNode, h('div', {}, name, h('small', { class: 'live-tag' }, t('live'))), host ? null : follow),
     viewers, close);
-  const node = h('section', { class: 'slide live-slide' }, grid, brandMark('live'), h('div', { class: 'shade' }), resting, top, tools, pinned, comments, hearts, banner, state, host ? requests : null, hostNotices, hostActions, bar);
+  const node = h('section', { class: 'slide live-slide' }, grid, brandMark('live'), h('div', { class: 'shade' }), resting, top, host ? null : tools, pinned, comments, hearts, banner, state, host ? requests : null, hostNotices, hostActions, bar);
   node._refs = { avatarNode, name, follow, viewers: viewers.querySelector('b'), viewersWrap: viewers, cover, background, stage, guests, grid, hostLabel, requests, pinned, comments, hearts, banner, state, resting, input, form, tools, micBtn, voiceBtn, camBtn, stageBtn, stageLabel, giftBtn, likeBtn, guestsBadge, seatCount };
   // Re-arrange the grid whenever a guest tile appears or leaves (tiles come from both room status and video tracks).
   new MutationObserver(() => layoutGrid(node)).observe(guests, { childList: true });
@@ -909,8 +909,8 @@ export class LiveView {
     this.goMode = 'video';
     let admission = 'approval';
     let comments = 'everyone';
-    let layout = 9;
-    let layoutStyle = 'fullscreen';
+    let layout = 8;
+    let layoutStyle = 'featured';
     let scope = 'public';
     this.goPreviewVideo = h('video', { class: 'gl-preview-video', autoplay: true, muted: true, playsinline: true, 'aria-label': t('camera') });
     this.goPreviewError = h('p', { class: 'gl-preview-error', role: 'status', 'aria-live': 'polite' });
@@ -993,7 +993,7 @@ export class LiveView {
       ['featured', 2, t('layoutSideBySide')], ['featured', 4, t('layoutSpotlight')],
       ['fullscreen', 5, t('layoutRoundtableOne')], ['featured', 8, t('layoutRoundtableTwo')],
     ];
-    let selectedLayout = 3;
+    let selectedLayout = 7;
     let acceptRequests = false;
     let guestAudience = '';
     let guestAudienceChoice = 'followers';

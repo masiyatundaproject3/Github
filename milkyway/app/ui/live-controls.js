@@ -143,7 +143,21 @@ export class HostControls {
   openModeration() { this.#renderModeration(); this.moderationSheet.open(); }
   openSettings() { this.#renderSettings(); this.settingsSheet.open(); }
   openViewers() { this.#renderViewers(); this.viewerSheet.open(); }
-  openMultiGuest() { this.#renderMultiGuest(); this.multiGuestSheet.open(); }
+  async openMultiGuest() {
+    this.#renderMultiGuest();
+    this.multiGuestSheet.open();
+    const settings = this.session.settings;
+    const layout = Number(settings.layout);
+    if (settings.showGuestSlots && settings.layoutStyle === 'featured' && layout > 1) return;
+    this.multiGuestWait.start('slots', t('switchingLiveMode'));
+    try {
+      await run(this.session, 'settings', {
+        showGuestSlots: true,
+        layout: layout > 1 ? layout : 8,
+        layoutStyle: 'featured',
+      });
+    } finally { this.multiGuestWait.stop('slots'); }
+  }
   /** Actions for one person; `message` is set when opened from a comment. */
   openPerson(person, message = null) {
     if (!person?.userId || person.userId === auth.userId) return;
@@ -385,19 +399,22 @@ export class HostControls {
 
   #renderMultiGuest() {
     const s = this.session, settings = s.settings;
-    let selectedIndex = this.selectedGuestLayout ?? (settings.layoutStyle === 'featured' ? 1 : 0);
     const cards = [
       ['fullscreen', 2, t('layoutFullScreen')], ['featured', 3, t('layoutFluidPanel')],
       ['fullscreen', 5, t('layoutFluidGrid')], ['fullscreen', 9, t('layoutFixedGrid')],
       ['featured', 2, t('layoutSideBySide')], ['featured', 4, t('layoutSpotlight')],
       ['fullscreen', 5, t('layoutRoundtableOne')], ['featured', 8, t('layoutRoundtableTwo')],
     ];
+    let selectedIndex = this.selectedGuestLayout ?? cards.findIndex(([style, count]) =>
+      style === (settings.layoutStyle === 'featured' ? 'featured' : 'fullscreen') && Number(count) === Number(settings.layout));
+    if (selectedIndex < 0) selectedIndex = cards.findIndex(([style]) => style === (settings.layoutStyle === 'featured' ? 'featured' : 'fullscreen'));
+    if (selectedIndex < 0) selectedIndex = 0;
     const grid = h('div', { class: 'gl-layout-cards' }, ...cards.map(([style, count, label], index) => h('button', {
       class: `gl-layout-card${index === selectedIndex ? ' is-selected' : ''}`, type: 'button',
       'aria-pressed': String(index === selectedIndex), onclick: async () => {
         this.multiGuestWait.start('layout', t('switchingLiveMode'));
         try {
-          if (!await run(s, 'settings', { layout: count, layoutStyle: style })) return;
+          if (!await run(s, 'settings', { layout: count, layoutStyle: style, showGuestSlots: true })) return;
           selectedIndex = index;
           this.selectedGuestLayout = index;
           grid.querySelectorAll('.gl-layout-card').forEach((item, itemIndex) => {
