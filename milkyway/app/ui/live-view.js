@@ -1094,10 +1094,18 @@ export class LiveView {
     const dock = h('nav', { class: 'gl-dock', 'aria-label': t('goLive') },
       ...[[t('live'), 'selected', null], [t('camera'), '', 'camera'], [t('create'), '', 'create']].map(([label, state, target]) => h('button', {
         type: 'button', class: `gl-dock-tab ${state}`, 'aria-current': state ? 'page' : null,
-        onclick: () => {
+        onclick: async () => {
           if (!target) return;
-          sheet.close();
-          this.hooks.openStudio?.(target);
+          if (!this.hooks.openStudio) {
+            toast(t('cameraAccessFailed'));
+            return;
+          }
+          try {
+            await this.hooks.openStudio(target);
+            sheet.close();
+          } catch (error) {
+            toast(String(error?.message || t('cameraAccessFailed')).replace(/\b(?:null|undefined)\b/gi, '').trim() || t('cameraAccessFailed'));
+          }
         },
       }, label)));
     sheet.body.append(h('div', { class: 'gl-preview' }, this.goPreviewVideo,

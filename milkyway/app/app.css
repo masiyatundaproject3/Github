@@ -1824,6 +1824,118 @@ html:is([data-mw-tone="light"],[data-mw-appearance="light"],[data-mw-appearance=
 .nova-admin-text small { font-size: 11.5px; font-weight: 600; opacity: .75; }
 .nova-admin-go svg { width: 18px; height: 18px; fill: currentColor; display: block; }
 
+/* Flat, compact LIVE and Camera controls; keep media filters and safe-area positioning intact. */
+.host-stage :where(*),
+.live-slide :where(*),
+.go-live-sheet :where(*),
+.creator-studio-sheet :where(*),
+.lc-sheet :where(*) { box-shadow: none !important; text-shadow: none !important; }
+.host-stage :where(*)::before,
+.host-stage :where(*)::after,
+.live-slide :where(*)::before,
+.live-slide :where(*)::after,
+.go-live-sheet :where(*)::before,
+.go-live-sheet :where(*)::after,
+.creator-studio-sheet :where(*)::before,
+.creator-studio-sheet :where(*)::after,
+.lc-sheet :where(*)::before,
+.lc-sheet :where(*)::after { box-shadow: none !important; }
+.host-stage :where(svg),
+.live-slide :where(svg),
+.go-live-sheet :where(svg),
+.creator-studio-sheet :where(svg),
+.lc-sheet :where(svg) { filter: none !important; }
+
+.host-stage .live-close { width: 32px; height: 32px; }
+.host-stage .live-close svg { width: 17px; height: 17px; }
+.live-host-actions { gap: 3px; padding: 3px; border-radius: 14px; }
+.live-host-action { min-height: 43px; padding: 3px 1px; border-radius: 10px; }
+.live-host-action > span { width: 19px; height: 19px; font-size: 16px; }
+.live-host-action svg { width: 16px; height: 16px; }
+.live-host-action small { font-size: 7px; }
+.live-tools { gap: 7px; }
+.live-tools .icon-btn,
+.host-stage .live-bar .live-bottom-tools .icon-btn { width: 29px; height: 29px; }
+.live-tools .icon-btn svg { width: 15px; height: 15px; }
+.live-slide .live-bar > .icon-btn { width: 31px; height: 31px; }
+.live-slide .live-join-btn { min-height: 31px; height: 31px; padding: 0 8px; font-size: 11px; }
+
+.go-live-sheet .gl-topbar { inset-inline: 12px; }
+.go-live-sheet .gl-close { width: 36px; height: 36px; font-size: 23px; }
+.go-live-sheet .gl-rewards,
+.go-live-sheet .gl-readiness-button,
+.go-live-sheet .gl-status-actions button { min-height: 32px; }
+.go-live-sheet .gl-readiness-button,
+.go-live-sheet .gl-status-actions button { width: 32px; font-size: 15px; }
+.go-live-sheet .gl-form { gap: 6px; }
+.go-live-sheet .gl-tool { min-height: 47px; gap: 3px; padding: 3px 2px; border-radius: 11px; }
+.go-live-sheet .gl-tool > span { width: 19px; height: 19px; font-size: 16px; }
+.go-live-sheet .gl-tool svg { width: 16px; height: 16px; }
+.go-live-sheet .gl-tool small { font-size: 7px; }
+.go-live-sheet .gl-title { height: 38px; min-height: 38px; padding-inline: 10px; font-size: 12px; }
+.go-live-sheet .gl-goal-button { min-height: 34px; padding-inline: 8px; font-size: 9px; }
+.go-live-sheet .gl-goal-input { min-height: 38px; }
+.go-live-sheet .gl-start { height: 42px; min-height: 42px; border-radius: 12px; font-size: 13px; }
+.go-live-sheet .gl-mode-row { padding: 3px; border-radius: 13px; }
+.go-live-sheet .gl-mode { min-height: 39px; gap: 2px; padding: 3px 2px; font-size: 7px; }
+.go-live-sheet .gl-mode > span { font-size: 14px; }
+.go-live-sheet .gl-mode svg { width: 16px; height: 16px; }
+.go-live-sheet .gl-dock { min-height: 36px; }
+.go-live-sheet .gl-dock-tab { min-height: 34px; font-size: 9px; }
+
+.creator-header { grid-template-columns: 36px minmax(0, 1fr) 36px; min-height: 38px; }
+.creator-close { width: 36px; height: 36px; font-size: 23px; }
+.creator-sound-button { min-height: 30px; padding-inline: 10px; font-size: 11px; }
+.creator-tool { min-width: 38px; }
+.creator-tool > span { width: 30px; height: 30px; font-size: 17px; }
+.creator-tool small { font-size: 8px; }
+.creator-settings-panel { gap: 7px; width: min(250px, calc(100% - 104px)); padding: 10px; border-radius: 14px; }
+.creator-settings-option { padding: 6px 2px; font-size: 8px; }
+.creator-zoom-controls { grid-template-columns: 27px minmax(0, 1fr) 27px; gap: 5px; }
+.creator-zoom-step { width: 26px; height: 26px; font-size: 16px; }
+.creator-mode-row { min-height: 30px; gap: clamp(3px, 1.5vw, 10px); }
+.creator-mode { padding: 4px 6px; font-size: 9px; }
+.creator-capture-row { min-height: 56px; gap: clamp(20px, 10vw, 52px); }
+.creator-gallery,
+.creator-effects-shortcut { width: 36px; height: 36px; border-radius: 11px; font-size: 19px; }
+.creator-shutter { width: 52px; height: 52px; border-width: 2px; }
+.creator-shutter > span { width: 40px; height: 40px; }
+.creator-shutter.video-mode > span { width: 22px; height: 22px; }
+.creator-bottom-dock { gap: 8px; padding-inline: 10px; }
+.creator-live-shortcut { min-height: 30px; padding-inline: 9px; font-size: 9px; }
+.creator-bottom-switch { gap: 3px; padding: 2px; }
+.creator-view-mode { min-width: 76px; min-height: 25px; padding: 4px 10px; font-size: 9px; }
+.creator-hub { gap: 12px; padding: 8px 2px 18px; }
+.creator-hub-tools { gap: 6px; }
+.creator-hub-tool { flex-basis: 52px; min-width: 52px; min-height: 70px; gap: 5px; }
+.creator-hub-tool > span { width: 40px; height: 40px; border-radius: 13px; font-size: 19px; }
+.creator-hub-tool b { font-size: 9px; }
+.creator-hub-actions { gap: 8px; }
+.creator-hub-action { min-height: 76px; gap: 8px; padding: 10px; border-radius: 15px; }
+.creator-hub-action > span { width: 36px; height: 36px; border-radius: 12px; font-size: 22px; }
+.creator-hub-action b { font-size: 11px; }
+.creator-templates { gap: 8px; }
+.creator-templates h3 { font-size: 15px; }
+.creator-template-search-button { width: 36px; height: 36px; font-size: 21px; }
+.creator-template-search { min-height: 40px; font-size: 12px; }
+.creator-template-filters { gap: 12px; }
+.creator-template-filter { min-height: 38px; font-size: 11px; }
+.creator-template-grid { gap: 8px; }
+.creator-template { gap: 6px; min-height: 126px; padding: 7px; border-radius: 13px; }
+.creator-template-preview { min-height: 94px; border-radius: 9px; font-size: 24px; }
+.creator-template small { font-size: 10px; }
+.creator-review { gap: 8px; padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px); }
+.creator-review-head { min-height: 30px; }
+.creator-review-back,
+.creator-review .creator-details-toggle { padding: 5px 7px; font-size: 10px; }
+.creator-review .creator-submit { min-height: 40px; }
+.lc-live-settings-sheet .lc-setting-row { min-height: 42px; padding: 5px 3px; }
+.lc-live-settings-sheet .lc-sheet-close,
+.lc-multiguest-sheet .lc-sheet-back { width: 32px; height: 32px; font-size: 20px; }
+.lc-multiguest-sheet .gl-layout-card { min-height: 66px; padding: 5px; }
+.lc-multiguest-sheet .gl-layout-card > span { width: 30px; height: 25px; font-size: 18px; }
+.lc-multiguest-sheet .gl-audience-option { min-height: 36px; padding: 4px 7px; font-size: 11px; }
+
 /* Feed: sponsored slides and "Suggested for you" (woven between posts). */
 .slide[data-kind] .rail { display: none; }
 .slide[data-kind="ad"] .meta { right: 12px; }
