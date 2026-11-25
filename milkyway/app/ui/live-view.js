@@ -885,7 +885,11 @@ export class LiveView {
   #buildGoLiveSheet() {
     const sheet = new Sheet({
       title: t('goLive'), className: 'go-live-sheet',
-      onClose: () => this.#stopGoLivePreview(), autoFocus: false,
+      onClose: () => {
+        this.#stopGoLivePreview();
+        if (!this.broadcastStarting) this.hooks.onPreliveClose?.();
+      },
+      autoFocus: false,
     });
     sheet.panel.setAttribute('aria-label', t('goLive'));
     this.goFacing = 'user';
@@ -900,29 +904,23 @@ export class LiveView {
     const close = h('button', { class: 'gl-close', type: 'button', 'aria-label': t('close'), onclick: () => sheet.close() }, '×');
     const rewards = h('button', { class: 'gl-rewards', type: 'button', onclick: () => toast(t('soon')) }, '✦ ', t('liveRewards'));
     const statusIcons = h('div', { class: 'gl-status-actions' },
-      h('button', { type: 'button', 'aria-label': t('liveMissions'), onclick: () => toast(t('soon')) }, '◎'),
-      h('button', { type: 'button', 'aria-label': t('liveSettings'), onclick: () => { details.hidden = !details.hidden; } }, '⚙'));
+      h('button', { type: 'button', 'aria-label': t('liveSettings'), onclick: () => { details.hidden = !details.hidden; } },
+        h('span', { html: icon.gear, 'aria-hidden': 'true' })));
     const mission = h('aside', { class: 'gl-mission' },
       h('span', { 'aria-hidden': 'true' }, '✦'), h('span', {}, t('liveMissionHint')),
       h('button', { type: 'button', 'aria-label': t('dismiss'), onclick: () => mission.remove() }, '×'));
-    const flip = h('button', { class: 'gl-preview-flip', type: 'button', 'aria-label': t('flipCamera'), onclick: () => { void this.#flipGoLivePreview(); } }, icon.flip);
-    const beautify = h('button', { class: 'gl-preview-beautify', type: 'button', 'aria-pressed': 'false', onclick: () => {
-      const active = beautify.getAttribute('aria-pressed') !== 'true';
-      beautify.setAttribute('aria-pressed', String(active));
-      sheet.panel.classList.toggle('beautified', active);
-    } }, '✧ ', t('beautify'));
-    const effects = h('button', { class: 'gl-preview-effects', type: 'button', 'aria-pressed': 'false', onclick: () => {
-      const active = effects.getAttribute('aria-pressed') !== 'true';
-      effects.setAttribute('aria-pressed', String(active));
-      sheet.panel.classList.toggle('effects-on', active);
-    } }, '✦ ', t('effects'));
+    const togglePreviewEffect = (button, className) => {
+      const active = button.getAttribute('aria-pressed') !== 'true';
+      button.setAttribute('aria-pressed', String(active));
+      sheet.panel.classList.toggle(className, active);
+    };
     const tool = (label, symbol, handler) => h('button', {
       class: 'gl-tool', type: 'button', 'aria-label': label, onclick: handler,
     }, h('span', { 'aria-hidden': 'true' }, symbol), h('small', {}, label));
     const toolRows = h('div', { class: 'gl-tool-grid' },
       tool(t('flipCamera'), '↻', () => { void this.#flipGoLivePreview(); }),
-      tool(t('beautify'), '✧', () => beautify.click()),
-      tool(t('effects'), '✦', () => effects.click()),
+      tool(t('beautify'), '✧', event => togglePreviewEffect(event.currentTarget, 'beautified')),
+      tool(t('effects'), '✦', event => togglePreviewEffect(event.currentTarget, 'effects-on')),
       tool(t('liveSettings'), '⚙', () => { details.hidden = !details.hidden; }),
       tool(t('multiGuest'), '♧', () => guestSheet.open()),
       tool(t('servicePlus'), '✚', () => toast(t('soon'))),
@@ -957,7 +955,8 @@ export class LiveView {
           });
           if (value === 'audio') this.#stopGoLivePreview();
           else void this.#startGoLivePreview();
-        } }, h('span', { 'aria-hidden': 'true', ...(symbol.startsWith?.('<svg') ? { html: symbol } : {}) }, symbol.startsWith?.('<svg') ? '' : symbol), label);
+        } }, h('span', { 'aria-hidden': 'true', ...(typeof symbol === 'string' && symbol.trimStart().startsWith('<svg') ? { html: symbol } : {}) },
+          typeof symbol === 'string' && symbol.trimStart().startsWith('<svg') ? '' : symbol), label);
         modeButtons.push(button);
         return button;
       }));
@@ -1032,10 +1031,12 @@ export class LiveView {
     sheet.body.append(h('div', { class: 'gl-preview' }, this.goPreviewVideo,
       h('div', { class: 'gl-preview-overlay' }),
       h('header', { class: 'gl-topbar' }, close, h('div', { class: 'gl-top-actions' }, rewards, statusIcons)),
-      mission, this.goPreviewError, flip, beautify, effects),
+      mission, this.goPreviewError),
     h('form', { class: 'gl-form', onsubmit: event => {
       event.preventDefault();
+      this.broadcastStarting = true;
       sheet.close();
+      this.broadcastStarting = false;
       const liveTitle = [title.value.trim(), goalInput.value.trim() ? `${t('liveGoal')}: ${goalInput.value.trim()}` : ''].filter(Boolean).join(' · ').slice(0, 80);
       this.#broadcast(liveTitle, this.goMode === 'audio' ? 'audio' : 'video', {
         scope, admission: guestAudience || admission,

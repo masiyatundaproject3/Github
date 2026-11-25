@@ -81,6 +81,7 @@ function openPost(post) {
 const discoveryView = lazy(() => import('./ui/discovery-view.js').then(m => new m.DiscoveryView($('exploreView'), { openProfile, openPost })));
 const liveView = lazy(() => import('./ui/live-view.js').then(m => new m.LiveView($('liveView'), {
   requireLogin, openProfile, onClose: () => showHome(),
+  onPreliveClose: () => playback.suspend(shell.dataset.view !== 'home'),
   openStudio: view => composeSheet().then(sheet => sheet.open(view)),
   openGifts: target => giftTray().then(tray => tray.open(target)),
 })));
@@ -145,6 +146,17 @@ function showLive(room = null) {
   if (!location.hash.startsWith('#live')) history.pushState({ live: true }, '', room ? `#live=${encodeURIComponent(room)}` : '#live');
   liveView().then(view => view.open(room));
 }
+function openGoLive() {
+  if (!requireLogin()) return;
+  liveView().then(view => {
+    if (window.isSecureContext && navigator.mediaDevices?.getUserMedia) playback.suspend(true);
+    view.openGoLive();
+  }).catch(error => {
+    console.error('[live] studio could not be opened', error);
+    playback.suspend(shell.dataset.view !== 'home');
+    toast(error?.message || t('liveUnavailable'));
+  });
+}
 function showExplore() {
   if (liveView.loaded()) liveView().then(view => view.close());
   if (location.hash.startsWith('#live')) history.replaceState(null, '', location.pathname + location.search);
@@ -181,7 +193,7 @@ document.addEventListener('click', event => {
   if (!target) return;
   if (target.dataset.scope) { if (shell.dataset.view !== 'home') showHome(); setScope(target.dataset.scope); return; }
   if (target.hasAttribute('data-community')) { openCommunity(); return; }
-  if (target.id === 'liveEntry') { showLive(); return; }
+  if (target.id === 'liveEntry') { openGoLive(); return; }
   if (target.id === 'profileSearch') { profileSearch().then(view => view.open()); return; }
   const nav = target.dataset.nav;
   if (nav === 'home') { if (shell.dataset.view === 'home') feedView.reload(); else showHome(); }

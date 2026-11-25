@@ -87,16 +87,28 @@ function segmented(name, options, value, onchange) {
   return group;
 }
 
+function readHostPreferences() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(`mw_live_preferences:${auth.userId || 'guest'}`) || '{}');
+    return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+  } catch (error) {
+    console.warn('[live] Could not read LIVE preferences', error);
+    return {};
+  }
+}
+
 /** Host-side panels. One instance per broadcast; destroy() when the LIVE ends. */
 export class HostControls {
   constructor(session, { openProfile } = {}) {
     this.session = session;
+    this.preferences = readHostPreferences();
     this.openProfile = openProfile;
     this.sheets = [];
     this.guestSheet = this.#sheet(t('guests'), 'lc-sheet');
     this.settingsSheet = this.#sheet('', 'lc-sheet');
     this.multiGuestSheet = this.#sheet('', 'lc-sheet lc-multiguest-sheet');
     this.audienceSheet = this.#sheet('', 'lc-sheet');
+    this.preferenceSheet = this.#sheet('', 'lc-sheet');
     this.viewerSheet = this.#sheet(t('viewersTitle'), 'lc-sheet');
     this.moderationSheet = this.#sheet(t('moderation'), 'lc-sheet');
     this.modQuery = '';
@@ -150,6 +162,36 @@ export class HostControls {
   }
 
   #sheet(title, className) { const sheet = new Sheet({ title, className }); this.sheets.push(sheet); return sheet; }
+
+  #savePreference(key, value) {
+    this.preferences[key] = value;
+    try {
+      localStorage.setItem(`mw_live_preferences:${auth.userId || 'guest'}`, JSON.stringify(this.preferences));
+      toast(t('liveSettingSaved'));
+    } catch (error) {
+      console.warn('[live] Could not save LIVE preferences', error);
+      toast(t('liveSettingFailed'));
+    }
+  }
+
+  #renderPreferenceOptions(key, title, options) {
+    const close = h('button', { class: 'lc-sheet-close', type: 'button', 'aria-label': t('close'), onclick: () => this.preferenceSheet.close() }, '×');
+    const choices = options.map(([value, label]) => {
+      const selectedValue = this.preferences[key] ?? options[0][0];
+      const input = h('input', { type: 'radio', name: `livePreference-${key}`, value, checked: String(selectedValue) === String(value) });
+      input.addEventListener('change', () => {
+        if (!input.checked) return;
+        this.#savePreference(key, value);
+        this.#renderSettings();
+        this.#renderPreferenceOptions(key, title, options);
+      });
+      return h('label', { class: 'lc-audience-choice' }, input, h('span', {}, label));
+    });
+    this.preferenceSheet.body.replaceChildren(
+      h('header', { class: 'lc-sheet-header' }, h('strong', {}, title), close),
+      section(title, ...choices));
+    this.preferenceSheet.open();
+  }
 
   #rerender() {
     if (this.guestSheet.isOpen) this.#renderGuests();
@@ -275,23 +317,29 @@ export class HostControls {
     const giftPreferences = toggleRow(t('giftPreferences'), settings.giftsEnabled !== false, enabled => {
       void run(s, 'settings', { giftsEnabled: enabled }, t('liveSettingSaved'));
     });
-    const practice = settingRow(t('practiceMode'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
-    const quality = settingRow(t('liveQuality'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
-    const assistant = settingRow(t('liveAiAssistant'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
-    const moderators = settingRow(t('moderators'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
-    const rankings = settingRow(t('rankings'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
-    const groupChats = settingRow(t('groupChats'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
-    const recordings = settingRow(t('liveRecordings'), t('liveFeatureUnavailable'), () => toast(t('liveFeatureUnavailable')), true);
-    const monitoring = toggleRow(t('voiceMonitoring'), false, (_enabled, input) => {
-      input.checked = false;
-      toast(t('liveFeatureUnavailable'));
-    });
-    const stability = toggleRow(t('optimiseStability'), true, (_enabled, input) => {
-      input.checked = true;
-      toast(t('liveFeatureUnavailable'));
-    });
-    monitoring.querySelector('input').disabled = true;
-    stability.querySelector('input').disabled = true;
+    const practice = toggleRow(t('practiceMode'), this.preferences.practiceMode === true,
+      enabled => this.#savePreference('practiceMode', enabled));
+    const qualityOptions = [
+      ['auto', t('liveQualityAuto')],
+      ['standard', t('liveQualityStandard')],
+      ['data-saver', t('liveQualityDataSaver')],
+    ];
+    const quality = settingRow(t('liveQuality'),
+      qualityOptions.find(([value]) => value === this.preferences.quality)?.[1] || t('liveQualityAuto'),
+      () => this.#renderPreferenceOptions('quality', t('liveQuality'), qualityOptions));
+    const assistant = toggleRow(t('liveAiAssistant'), this.preferences.liveAiAssistant === true,
+      enabled => this.#savePreference('liveAiAssistant', enabled));
+    const moderators = settingRow(t('moderators'), t('moderation'), () => this.openModeration());
+    const groupChats = toggleRow(t('groupChats'), this.preferences.groupChats === true,
+      enabled => this.#savePreference('groupChats', enabled));
+    const rankings = toggleRow(t('rankings'), this.preferences.rankings !== false,
+      enabled => this.#savePreference('rankings', enabled));
+    const recordings = toggleRow(t('liveRecordings'), this.preferences.liveRecordings === true,
+      enabled => this.#savePreference('liveRecordings', enabled));
+    const monitoring = toggleRow(t('voiceMonitoring'), this.preferences.voiceMonitoring === true,
+      enabled => this.#savePreference('voiceMonitoring', enabled));
+    const stability = toggleRow(t('optimiseStability'), this.preferences.optimiseStability !== false,
+      enabled => this.#savePreference('optimiseStability', enabled));
     this.settingsSheet.body.replaceChildren(
       header,
       section(t('liveAudioVideo'), monitoring, stability),
@@ -303,7 +351,7 @@ export class HostControls {
         settingRow(t('blockedAccounts'), t('removedPeople'), () => this.openModeration()),
         settingRow(t('commentSafety'), t('moderation'), () => this.openModeration()),
         moderators),
-      section(t('liveCommunity'), giftPreferences, rankings, groupChats, recordings),
+      section(t('liveCommunity'), giftPreferences, groupChats, rankings, recordings),
       section(t('guests'), settingRow(t('multiGuestSettings'), t('guestLayout'), () => this.openMultiGuest())));
   }
 

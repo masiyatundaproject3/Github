@@ -6,12 +6,70 @@ import { createVideoPreview, optimizeImage, optimizeVideo, yieldToBrowser } from
 import { profiles } from '../data/profiles.js';
 import { feed } from '../data/feed.js';
 import { Sheet } from './sheet.js';
-import { h, toast } from './dom.js';
+import { h, icon, toast, count } from './dom.js';
 
 const MAX_IMAGE = 10 * 1024 * 1024;
 const MAX_VIDEO = 100 * 1024 * 1024;
 const MAX_AUDIO = 25 * 1024 * 1024;
 const MAX_PHOTOS = 8;
+const MAX_SOUND_TRACKS = 24;
+
+function formatSoundDuration(seconds) {
+  const duration = Number(seconds);
+  if (!Number.isFinite(duration) || duration < 0) return '—';
+  return `${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, '0')}`;
+}
+
+function soundText(value, fallback) {
+  if (typeof value !== 'string') return fallback;
+  const text = value.trim();
+  return text && !/^(?:null|undefined)$/i.test(text) ? text : fallback;
+}
+
+async function trimSoundFile(url, start, end) {
+  const response = await fetch(url, { credentials: 'omit' });
+  if (!response.ok) throw new Error(t('studioSoundTrimFailed'));
+  const bytes = await response.arrayBuffer();
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) throw new Error(t('studioSoundTrimFailed'));
+  const context = new AudioContextCtor();
+  let audio;
+  try { audio = await context.decodeAudioData(bytes); }
+  finally { await context.close(); }
+  const firstFrame = Math.max(0, Math.min(audio.length - 1, Math.floor(start * audio.sampleRate)));
+  const lastFrame = Math.max(firstFrame + 1, Math.min(audio.length, Math.floor(end * audio.sampleRate)));
+  const channels = Math.min(2, audio.numberOfChannels);
+  const frames = lastFrame - firstFrame;
+  const bytesPerSample = 2;
+  const dataSize = frames * channels * bytesPerSample;
+  const output = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(output);
+  const write = (offset, value) => {
+    for (let index = 0; index < value.length; index++) view.setUint8(offset + index, value.charCodeAt(index));
+  };
+  write(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  write(8, 'WAVE');
+  write(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, audio.sampleRate, true);
+  view.setUint32(28, audio.sampleRate * channels * bytesPerSample, true);
+  view.setUint16(32, channels * bytesPerSample, true);
+  view.setUint16(34, 16, true);
+  write(36, 'data');
+  view.setUint32(40, dataSize, true);
+  let offset = 44;
+  for (let frame = firstFrame; frame < lastFrame; frame++) {
+    for (let channel = 0; channel < channels; channel++) {
+      const sample = Math.max(-1, Math.min(1, audio.getChannelData(channel)[frame]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += bytesPerSample;
+    }
+  }
+  return new File([output], 'milkyway-sound-clip.wav', { type: 'audio/wav' });
+}
 
 function readableError(error, fallback) {
   const message = String(error?.message || error || '').replace(/\b(?:null|undefined)\b/gi, '').replace(/\s+/g, ' ').trim();
@@ -62,6 +120,13 @@ export class ComposeSheet {
     this.files = [];
     this.mediaSelection = 0;
     this.audioSelection = 0;
+    this.audioTrack = null;
+    this.soundTracks = [];
+    this.soundPreview = null;
+    this.soundCategory = 'hot';
+    this.soundQuery = '';
+    this.soundFavourites = this.#readSoundList('mw_sound_favourites');
+    this.soundRecent = this.#readSoundList('mw_sound_recent');
     this.mediaPending = false;
     this.audioPending = false;
     this.publishing = false;
@@ -123,7 +188,7 @@ export class ComposeSheet {
     this.submit = h('button', { class: 'pill-btn hot wide compose-submit', type: 'submit' }, t('publish'));
     const soundButton = h('button', {
       class: 'creator-sound-button', type: 'button', 'aria-label': t('studioAddSound'),
-      onclick: () => this.#openPicker(this.audioInput),
+      onclick: () => this.#openSoundPicker(),
     }, h('span', { 'aria-hidden': 'true' }, '♫'), t('studioAddSound'));
     const createTitle = h('strong', { class: 'creator-create-title' }, t('create'));
     const closeButton = h('button', {
@@ -946,9 +1011,294 @@ export class ComposeSheet {
     this.#pickMedia(this.files.map(entry => entry.file));
   }
 
+  #readSoundList(name) {
+    try {
+      const value = JSON.parse(localStorage.getItem(`${name}:${auth.userId || 'guest'}`) || '[]');
+      return Array.isArray(value) ? value.filter(item => typeof item === 'string').slice(0, 100) : [];
+    } catch (error) {
+      console.warn('[compose] Could not read saved sound selections', error);
+      return [];
+    }
+  }
+
+  #saveSoundList(name, values) {
+    try {
+      localStorage.setItem(`${name}:${auth.userId || 'guest'}`, JSON.stringify(values.slice(0, 100)));
+      return true;
+    } catch (error) {
+      console.warn('[compose] Could not save sound selections', error);
+      toast(t('studioSoundSaveFailed'));
+      return false;
+    }
+  }
+
+  #openSoundPicker() {
+    if (!this.soundSheet) {
+      this.soundStatus = h('p', { class: 'sound-picker-status', role: 'status', 'aria-live': 'polite' });
+      this.soundList = h('div', { class: 'sound-picker-list' });
+      this.soundSearch = h('input', {
+        class: 'field sound-picker-search', type: 'search', placeholder: t('studioSoundSearch'),
+        'aria-label': t('studioSoundSearch'), oninput: () => {
+          this.soundQuery = this.soundSearch.value.trim().toLocaleLowerCase();
+          this.#renderSoundTracks();
+        },
+      });
+      const tabs = [
+        ['hot', t('studioSoundHot')],
+        ['forYou', t('studioSoundForYou')],
+        ['favourites', t('studioSoundFavourites')],
+        ['recent', t('studioSoundRecent')],
+      ];
+      this.soundTabs = h('div', { class: 'sound-picker-tabs', role: 'tablist', 'aria-label': t('studioAddSound') },
+        ...tabs.map(([key, label]) => h('button', {
+          class: `sound-picker-tab${key === this.soundCategory ? ' is-selected' : ''}`,
+          type: 'button', role: 'tab', 'aria-selected': String(key === this.soundCategory),
+          onclick: () => {
+            this.soundCategory = key;
+            this.#renderSoundTabs();
+            this.#renderSoundTracks();
+          },
+        }, label)));
+      const search = h('label', { class: 'sound-picker-search-wrap' },
+        h('span', { html: icon.search, 'aria-hidden': 'true' }), this.soundSearch);
+      this.soundSheet = new Sheet({
+        title: t('studioAddSound'), className: 'sound-picker-sheet', autoFocus: false,
+        onClose: () => {
+          this.soundPreview?.pause();
+          this.activeSoundPreviewButton?.classList.remove('is-playing');
+        },
+      });
+      this.soundSheet.body.replaceChildren(search, this.soundTabs, this.soundStatus, this.soundList);
+    }
+    this.soundSheet.open();
+    void this.#loadSoundTracks();
+  }
+
+  #renderSoundTabs() {
+    this.soundTabs.querySelectorAll('.sound-picker-tab').forEach((button, index) => {
+      const selected = ['hot', 'forYou', 'favourites', 'recent'][index] === this.soundCategory;
+      button.classList.toggle('is-selected', selected);
+      button.setAttribute('aria-selected', String(selected));
+    });
+  }
+
+  async #loadSoundTracks() {
+    this.soundStatus.textContent = t('loading');
+    this.soundList.replaceChildren();
+    try {
+      const source = feed('foryou');
+      await source.load();
+      const posts = source.source.value?.posts || [];
+      const usesByUrl = new Map();
+      for (const post of posts) {
+        const candidate = post.media?.audioUrl || post.audioUrl || post.audio_url || '';
+        const url = typeof candidate === 'string' && /^https:\/\//i.test(candidate) ? candidate : '';
+        if (url) usesByUrl.set(url, (usesByUrl.get(url) || 0) + 1);
+      }
+      this.soundTracks = posts.reduce((tracks, post) => {
+        const candidate = post.media?.audioUrl || post.audioUrl || post.audio_url || '';
+        const url = typeof candidate === 'string' && /^https:\/\//i.test(candidate) ? candidate : '';
+        if (!url || tracks.some(track => track.url === url)) return tracks;
+        try {
+          const parsed = new URL(url, location.href);
+          if (parsed.protocol !== 'https:' && parsed.origin !== location.origin) return tracks;
+        } catch { return tracks; }
+        tracks.push({
+          id: String(post.id || url), url, post,
+          postCount: usesByUrl.get(url) || 1,
+          duration: Number(post.audioDuration || post.duration) || 0,
+          durationProbe: null,
+        });
+        return tracks;
+      }, []).slice(0, MAX_SOUND_TRACKS);
+      this.soundStatus.textContent = '';
+      this.#renderSoundTracks();
+    } catch (error) {
+      console.error('[compose] Sound picker could not load tracks', error);
+      this.soundStatus.textContent = t('exploreLoadFailed');
+    }
+  }
+
+  #renderSoundTracks() {
+    if (!this.soundList) return;
+    const query = this.soundQuery;
+    const favourites = new Set(this.soundFavourites);
+    const recent = new Map(this.soundRecent.map((url, index) => [url, index]));
+    let tracks = this.soundTracks.filter(track => {
+      const title = soundText(track.post.caption, t('exploreOriginalSound'));
+      const creator = soundText(track.post.author?.name, 'MilkyWay');
+      return `${title} ${creator}`.toLocaleLowerCase().includes(query);
+    });
+    if (this.soundCategory === 'favourites') tracks = tracks.filter(track => favourites.has(track.url));
+    else if (this.soundCategory === 'recent') tracks = tracks.filter(track => recent.has(track.url))
+      .sort((a, b) => recent.get(a.url) - recent.get(b.url));
+    else if (this.soundCategory === 'hot') tracks.sort((a, b) => b.postCount - a.postCount || (Number(b.post.likes) || 0) - (Number(a.post.likes) || 0));
+    this.soundList.replaceChildren();
+    if (!tracks.length) {
+      this.soundStatus.textContent = this.soundTracks.length ? t('studioSoundNoResults') : t('exploreNoSounds');
+      return;
+    }
+    this.soundStatus.textContent = '';
+    for (const track of tracks) {
+      const title = soundText(track.post.caption, t('exploreOriginalSound')).split(/\r?\n/).map(line => line.trim()).find(Boolean) || t('exploreOriginalSound');
+      const creator = soundText(track.post.author?.name, 'MilkyWay');
+      const isFavourite = favourites.has(track.url);
+      const duration = h('span', { class: 'sound-track-duration' }, formatSoundDuration(track.duration));
+      const coverUrl = track.post.media?.type === 'image' ? track.post.media.url : '';
+      const cover = coverUrl
+        ? h('img', { class: 'sound-track-cover', src: coverUrl, alt: '', loading: 'lazy' })
+        : h('span', { class: 'sound-track-cover sound-track-cover-placeholder', 'aria-hidden': 'true' }, '♫');
+      const select = h('button', {
+        class: 'sound-track-select', type: 'button', 'aria-label': `${t('studioSoundUse')} ${title}`,
+        onclick: () => {
+          this.soundRecent = [track.url, ...this.soundRecent.filter(url => url !== track.url)].slice(0, 100);
+          this.#saveSoundList('mw_sound_recent', this.soundRecent);
+          this.#pickAudioTrack(track);
+          this.soundSheet.close();
+        },
+      }, cover, h('span', { class: 'sound-track-copy' },
+        h('b', {}, title),
+        h('small', {}, creator),
+        h('small', { class: 'sound-track-meta' }, `${count(track.postCount)} ${t('posts')}`, ' · ', duration)));
+      const preview = h('button', {
+        class: 'sound-track-icon', type: 'button', 'aria-label': t('studioSoundPreview'),
+        onclick: async () => {
+          if (this.soundPreview?.src === new URL(track.url, location.href).href && !this.soundPreview.paused) {
+            this.soundPreview.pause();
+            preview.classList.remove('is-playing');
+            return;
+          }
+          this.soundPreview?.pause();
+          this.activeSoundPreviewButton?.classList.remove('is-playing');
+          const player = new Audio(track.url);
+          this.soundPreview = player;
+          this.activeSoundPreviewButton = preview;
+          player.preload = 'metadata';
+          player.addEventListener('loadedmetadata', () => {
+            track.duration = player.duration;
+            duration.textContent = formatSoundDuration(track.duration);
+          }, { once: true });
+          player.addEventListener('ended', () => preview.classList.remove('is-playing'), { once: true });
+          try {
+            await player.play();
+            preview.classList.add('is-playing');
+          }
+          catch (error) {
+            console.warn('[compose] Sound preview could not play', error);
+            toast(t('studioSoundPreviewFailed'));
+          }
+        },
+      }, h('span', { class: 'sound-preview-play', html: icon.play, 'aria-hidden': 'true' }),
+      h('span', { class: 'sound-equalizer', 'aria-hidden': 'true' }, h('i'), h('i'), h('i'), h('i')));
+      const trim = h('button', {
+        class: 'sound-track-icon', type: 'button', 'aria-label': t('studioSoundTrim'),
+        onclick: () => this.#openSoundTrim(track),
+      }, '✂');
+      const favourite = h('button', {
+        class: `sound-track-icon sound-track-save${isFavourite ? ' is-saved' : ''}`,
+        type: 'button', 'aria-pressed': String(isFavourite),
+        'aria-label': isFavourite ? t('studioSoundRemoveFavourite') : t('studioSoundSaveFavourite'),
+        onclick: () => {
+          this.soundFavourites = isFavourite
+            ? this.soundFavourites.filter(url => url !== track.url)
+            : [track.url, ...this.soundFavourites.filter(url => url !== track.url)];
+          if (this.#saveSoundList('mw_sound_favourites', this.soundFavourites)) this.#renderSoundTracks();
+        },
+      }, isFavourite ? '★' : '☆');
+      const row = h('article', { class: 'sound-track-row' }, select, preview, trim, favourite);
+      if (!track.duration && !track.durationProbe) {
+        track.durationProbe = new Audio();
+        track.durationProbe.preload = 'metadata';
+        track.durationProbe.addEventListener('loadedmetadata', () => {
+          track.duration = track.durationProbe.duration;
+          duration.textContent = formatSoundDuration(track.duration);
+        }, { once: true });
+        track.durationProbe.src = track.url;
+        track.durationProbe.load();
+      }
+      this.soundList.append(row);
+    }
+  }
+
+  #pickAudioTrack(track) {
+    if (this.audioUrl) URL.revokeObjectURL(this.audioUrl);
+    this.audioSelection++;
+    this.audioPending = false;
+    this.audioFile = null;
+    this.audioUrl = null;
+    this.audioTrack = track;
+    this.audioInput.value = '';
+    if (!this.publishing && !this.mediaPending) this.submit.disabled = false;
+    this.audioPreview.replaceChildren(
+      h('audio', { src: track.url, controls: true, preload: 'metadata' }),
+      h('button', { class: 'link', type: 'button', onclick: () => this.#pickAudio(null) }, t('remove')));
+    this.audioBar.hidden = false;
+    this.message.textContent = '';
+    this.#showReview();
+  }
+
+  #openSoundTrim(track) {
+    this.trimSheet ||= new Sheet({
+      title: t('studioSoundTrim'), className: 'sound-trim-sheet', autoFocus: false,
+      onClose: () => this.trimAudio?.pause(),
+    });
+    const audio = h('audio', { class: 'sound-trim-audio', src: track.url, controls: true, preload: 'metadata' });
+    this.trimAudio = audio;
+    const start = h('input', { class: 'field', type: 'range', min: '0', max: '0', step: '0.1', value: '0', disabled: true });
+    const end = h('input', { class: 'field', type: 'range', min: '0.5', max: '0.5', step: '0.1', value: '0.5', disabled: true });
+    const rangeText = h('p', { class: 'sound-trim-range' }, t('loading'));
+    const message = h('p', { class: 'sound-trim-message', role: 'status', 'aria-live': 'polite' });
+    const apply = h('button', { class: 'pill-btn hot wide', type: 'button', disabled: true, onclick: async () => {
+      apply.disabled = true;
+      message.textContent = t('loading');
+      try {
+        const file = await trimSoundFile(track.url, Number(start.value), Number(end.value));
+        if (file.size > MAX_AUDIO) throw new Error(t('audioTooBig'));
+        this.#pickAudio(file);
+        this.soundPreview?.pause();
+        this.trimSheet.close();
+        this.soundSheet.close();
+      } catch (error) {
+        console.error('[compose] Sound clip could not be trimmed', error);
+        message.textContent = readableError(error, t('studioSoundTrimFailed'));
+        apply.disabled = false;
+      }
+    } }, t('studioSoundUseClip'));
+    const updateRange = () => {
+      const from = Number(start.value);
+      const to = Number(end.value);
+      if (to <= from + 0.5) end.value = String(Math.min(Number(end.max), from + 0.5));
+      rangeText.textContent = `${formatSoundDuration(Number(start.value))} – ${formatSoundDuration(Number(end.value))}`;
+      if (audio.readyState >= 1) audio.currentTime = Number(start.value);
+    };
+    start.addEventListener('input', updateRange);
+    end.addEventListener('input', updateRange);
+    audio.addEventListener('loadedmetadata', () => {
+      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      if (duration < 0.5) {
+        message.textContent = t('studioSoundTrimFailed');
+        return;
+      }
+      start.max = String(Math.max(0, duration - 0.5));
+      end.max = String(duration);
+      end.value = String(Math.min(duration, 30));
+      start.disabled = false;
+      end.disabled = false;
+      apply.disabled = false;
+      updateRange();
+    }, { once: true });
+    this.trimSheet.body.replaceChildren(
+      audio,
+      h('label', { class: 'sound-trim-control' }, h('span', {}, t('studioSoundStart')), start),
+      h('label', { class: 'sound-trim-control' }, h('span', {}, t('studioSoundEnd')), end),
+      rangeText, message, apply);
+    this.trimSheet.open();
+  }
+
   async #pickAudio(file) {
     const selection = ++this.audioSelection;
     this.audioPending = false;
+    this.audioTrack = null;
     if (!this.publishing && !this.mediaPending) this.submit.disabled = false;
     if (this.audioUrl) URL.revokeObjectURL(this.audioUrl);
     this.audioFile = null;
@@ -1101,7 +1451,7 @@ export class ComposeSheet {
       }
       phase = 'uploading background audio';
       const audioUpload = this.audioFile ? await this.#upload(sb, this.audioFile) : null;
-      const audio_url = audioUpload?.url || null;
+      const audio_url = audioUpload?.url || this.audioTrack?.url || null;
       const media_type = video ? 'video' : media_url ? 'image' : null;
       const author_name = profiles.peek(auth.userId)?.name || auth.name;
       phase = 'saving post details';
