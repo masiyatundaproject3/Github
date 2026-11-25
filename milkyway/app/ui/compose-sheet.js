@@ -13,6 +13,32 @@ const MAX_VIDEO = 100 * 1024 * 1024;
 const MAX_AUDIO = 25 * 1024 * 1024;
 const MAX_PHOTOS = 8;
 const MAX_SOUND_TRACKS = 24;
+const MEDIA_PREPARATION_TIMEOUT = 15_000;
+
+function withTimeout(promise, timeout, message) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), timeout); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error, blob) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else if (!blob) reject(new Error(t('photoCropFailed')));
+      else resolve(blob);
+    };
+    const timer = setTimeout(() => finish(new Error(t('photoCropFailed'))), MEDIA_PREPARATION_TIMEOUT);
+    try { canvas.toBlob(blob => finish(null, blob), type, quality); }
+    catch (error) { finish(error); }
+  });
+}
 
 function formatSoundDuration(seconds) {
   const duration = Number(seconds);
@@ -114,6 +140,7 @@ export class ComposeSheet {
     this.onPublished = onPublished;
     this.sheet = new Sheet({ title: t('newPost'), className: 'compose-sheet creator-studio-sheet', dismissible: false, onClose: () => {
       this.wait?.stop('camera');
+      this.wait?.stop('media');
       this.#stopCamera();
       this.#releaseMedia();
       this.#pickAudio(null);
@@ -827,13 +854,17 @@ export class ComposeSheet {
     if (!context) { this.stageMessage.textContent = t('photoCropFailed'); return; }
     if (!this.#drawCameraFrame(context, canvas)) { this.stageMessage.textContent = t('photoCropFailed'); return; }
     const request = this.cameraRequest;
-    canvas.toBlob(blob => {
+    try {
+      const blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
       if (!this.sheet.isOpen || request !== this.cameraRequest) return;
-      if (!blob) { this.stageMessage.textContent = t('photoCropFailed'); return; }
       const photo = new File([blob], `milkyway-capture-${Date.now()}.jpg`, { type: 'image/jpeg' });
-      void this.#pickMedia([photo]);
+      await this.#pickMedia([photo]);
       this.stageMessage.textContent = '';
-    }, 'image/jpeg', 0.92);
+    } catch (error) {
+      if (this.sheet.isOpen && request === this.cameraRequest) {
+        this.stageMessage.textContent = readableError(error, t('photoCropFailed'));
+      }
+    }
   }
 
   async #recordClip() {
@@ -986,7 +1017,10 @@ export class ComposeSheet {
     });
     let entries;
     try {
-      entries = await Promise.all(files.map(async file => ({ file, ...(await identifyMediaFile(file)) })));
+      entries = await Promise.all(files.map(async file => ({
+        file,
+        ...(await withTimeout(identifyMediaFile(file), MEDIA_PREPARATION_TIMEOUT, t('mediaPreparationTimeout'))),
+      })));
     } catch (error) {
       if (selection === this.mediaSelection) this.message.textContent = readableError(error, t('mediaType'));
       return;
@@ -994,7 +1028,7 @@ export class ComposeSheet {
       if (selection === this.mediaSelection) {
         this.mediaPending = false;
         if (!this.publishing && !this.audioPending) this.submit.disabled = false;
-        this.soundWait.stop(waitKey);
+        this.wait.stop(waitKey);
       }
     }
     if (selection !== this.mediaSelection) return;
